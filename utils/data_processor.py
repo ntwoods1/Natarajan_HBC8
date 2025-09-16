@@ -271,78 +271,97 @@ class DataProcessor:
                     imputed_df[col] = imputed_df[col].fillna(col_mean)
         
         elif method == "Truncated Normal":
-            # Truncated normal distribution imputation centered at 1st percentile
+            # Truncated normal distribution imputation centered at 10th percentile
             # with 20% coefficient of variation
             for col in numeric_cols:
                 if imputed_df[col].isna().any():
-                    # Calculate the 1st percentile of the non-missing values
+                    # Calculate the 10th percentile of the non-missing values
                     valid_values = imputed_df[col].dropna()
                     if len(valid_values) > 0:
-                        first_percentile = np.percentile(valid_values, 1)
+                        tenth_percentile = np.percentile(valid_values, 10)
                         
                         if is_log2_normalized:
                             # For log2 normalized data, work in log2 space
-                            # Calculate standard deviation for 20% CV in log2 space
-                            # In log2 space, CV is approximated by std_dev directly
-                            # Use a smaller std_dev appropriate for log2 space
-                            std_dev = 0.5  # This represents reasonable variation in log2 space
+                            # Use the standard deviation of the actual data for more realistic variation
+                            data_std = valid_values.std()
+                            if pd.isna(data_std) or data_std == 0:
+                                data_std = 0.5  # Fallback standard deviation
                             
                             # Set bounds in log2 space
-                            # Lower bound should be reasonably below the 1st percentile
-                            lower_bound = first_percentile - 2 * std_dev
-                            upper_bound = first_percentile + std_dev
+                            # Center around 10th percentile with reasonable spread
+                            lower_bound = tenth_percentile - 1.5 * data_std
+                            upper_bound = tenth_percentile - 0.5 * data_std
                             
                             # Count missing values to generate
                             n_missing = imputed_df[col].isna().sum()
                             
                             if n_missing > 0:
-                                # Generate truncated normal values in log2 space
-                                from scipy.stats import truncnorm
-                                
-                                # Calculate truncnorm parameters
-                                a = (lower_bound - first_percentile) / std_dev  # standardized lower bound
-                                b = (upper_bound - first_percentile) / std_dev  # standardized upper bound
-                                
-                                # Generate samples
-                                samples = truncnorm.rvs(a, b, loc=first_percentile, scale=std_dev, size=n_missing)
-                                
-                                # Fill missing values
-                                missing_mask = imputed_df[col].isna()
-                                imputed_df.loc[missing_mask, col] = samples
+                                try:
+                                    # Generate truncated normal values in log2 space
+                                    from scipy.stats import truncnorm
+                                    
+                                    # Use the 10th percentile as the center, but shift towards lower values
+                                    center = tenth_percentile - 0.5 * data_std
+                                    scale = data_std * 0.3  # Smaller scale for imputed values
+                                    
+                                    # Calculate truncnorm parameters
+                                    a = (lower_bound - center) / scale  # standardized lower bound
+                                    b = (upper_bound - center) / scale  # standardized upper bound
+                                    
+                                    # Generate samples
+                                    samples = truncnorm.rvs(a, b, loc=center, scale=scale, size=n_missing)
+                                    
+                                    # Fill missing values
+                                    missing_mask = imputed_df[col].isna()
+                                    imputed_df.loc[missing_mask, col] = samples
+                                    
+                                except Exception:
+                                    # Fallback if truncnorm fails
+                                    fallback_value = tenth_percentile - data_std
+                                    missing_mask = imputed_df[col].isna()
+                                    imputed_df.loc[missing_mask, col] = fallback_value
                         else:
-                            # For non-normalized data, use original approach
+                            # For non-normalized data, use original approach with 10th percentile
                             # Calculate standard deviation for 20% CV
                             # CV = std / mean, so std = mean * CV
-                            std_dev = first_percentile * 0.2
+                            std_dev = tenth_percentile * 0.2
                             
                             # Generate truncated normal values
-                            # Set lower bound to prevent negative values
-                            lower_bound = max(0, first_percentile - 2 * std_dev)
-                            upper_bound = first_percentile + 2 * std_dev
+                            # Center below the 10th percentile for missing value imputation
+                            center = tenth_percentile * 0.8  # 80% of 10th percentile
+                            lower_bound = max(center * 0.5, 1e-8)  # Prevent values too close to zero
+                            upper_bound = tenth_percentile
                             
                             # Count missing values to generate
                             n_missing = imputed_df[col].isna().sum()
                             
                             if n_missing > 0:
-                                # Generate truncated normal values
-                                from scipy.stats import truncnorm
-                                
-                                # Calculate truncnorm parameters
-                                a = (lower_bound - first_percentile) / std_dev  # standardized lower bound
-                                b = (upper_bound - first_percentile) / std_dev  # standardized upper bound
-                                
-                                # Generate samples
-                                samples = truncnorm.rvs(a, b, loc=first_percentile, scale=std_dev, size=n_missing)
-                                
-                                # Ensure no negative values
-                                samples = np.maximum(samples, lower_bound)
-                                
-                                # Fill missing values
-                                missing_mask = imputed_df[col].isna()
-                                imputed_df.loc[missing_mask, col] = samples
+                                try:
+                                    # Generate truncated normal values
+                                    from scipy.stats import truncnorm
+                                    
+                                    # Calculate truncnorm parameters
+                                    a = (lower_bound - center) / std_dev  # standardized lower bound
+                                    b = (upper_bound - center) / std_dev  # standardized upper bound
+                                    
+                                    # Generate samples
+                                    samples = truncnorm.rvs(a, b, loc=center, scale=std_dev, size=n_missing)
+                                    
+                                    # Ensure no extremely small values
+                                    samples = np.maximum(samples, lower_bound)
+                                    
+                                    # Fill missing values
+                                    missing_mask = imputed_df[col].isna()
+                                    imputed_df.loc[missing_mask, col] = samples
+                                    
+                                except Exception:
+                                    # Fallback if truncnorm fails
+                                    fallback_value = center
+                                    missing_mask = imputed_df[col].isna()
+                                    imputed_df.loc[missing_mask, col] = fallback_value
                     else:
                         # If no valid values, use appropriate fallback
-                        fallback_value = -10 if is_log2_normalized else 1e-6
+                        fallback_value = -8 if is_log2_normalized else 1e-6
                         imputed_df[col] = imputed_df[col].fillna(fallback_value)
         
         # Final check for any remaining NaNs and handle with zeros as last resort

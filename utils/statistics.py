@@ -4,7 +4,9 @@ from scipy import stats
 from typing import Dict, Any, Tuple, List
 import random
 
+
 class StatisticalAnalysis:
+
     @staticmethod
     def descriptive_stats(df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -15,22 +17,40 @@ class StatisticalAnalysis:
         stats_df.loc['variance'] = df[numeric_cols].var()
         stats_df.loc['skewness'] = df[numeric_cols].skew()
         return stats_df
-    
+
     @staticmethod
-    def ttest_analysis(group1: pd.Series, group2: pd.Series) -> Dict[str, float]:
+    def ttest_analysis(group1: pd.Series,
+                       group2: pd.Series,
+                       equal_var: bool = False,
+                       paired: bool = False) -> Dict[str, float]:
         """
         Perform t-test between two groups
+        
+        Args:
+            group1: First group data
+            group2: Second group data
+            equal_var: Whether to assume equal variances (Student's vs Welch's t-test)
+            paired: Whether to perform paired t-test
         """
-        t_stat, p_val = stats.ttest_ind(
-            group1.dropna(),
-            group2.dropna(),
-            equal_var=False
-        )
-        return {
-            't_statistic': t_stat,
-            'p_value': p_val
-        }
-    
+        group1_clean = group1.dropna()
+        group2_clean = group2.dropna()
+
+        if paired:
+            # For paired t-test, ensure equal length
+            min_length = min(len(group1_clean), len(group2_clean))
+            if min_length > 1:
+                t_stat, p_val = stats.ttest_rel(group1_clean[:min_length],
+                                                group2_clean[:min_length])
+            else:
+                t_stat, p_val = 0, 1.0
+        else:
+            # Independent samples t-test
+            t_stat, p_val = stats.ttest_ind(group1_clean,
+                                            group2_clean,
+                                            equal_var=equal_var)
+
+        return {'t_statistic': t_stat, 'p_value': p_val}
+
     @staticmethod
     def anova_analysis(groups: Dict[str, pd.Series]) -> Dict[str, float]:
         """
@@ -38,13 +58,11 @@ class StatisticalAnalysis:
         """
         group_data = [group.dropna() for group in groups.values()]
         f_stat, p_val = stats.f_oneway(*group_data)
-        return {
-            'f_statistic': f_stat,
-            'p_value': p_val
-        }
-    
+        return {'f_statistic': f_stat, 'p_value': p_val}
+
     @staticmethod
-    def correlation_analysis(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def correlation_analysis(
+            df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Calculate correlation matrix and p-values
         """
@@ -52,7 +70,10 @@ class StatisticalAnalysis:
         corr_matrix = df[numeric_cols].corr()
 
     @staticmethod
-    def calculate_power(control_values, treatment_values, alpha=0.05, effect_size=None):
+    def calculate_power(control_values,
+                        treatment_values,
+                        alpha=0.05,
+                        effect_size=None):
         """
         Calculate statistical power for t-test comparison between two groups
         
@@ -67,45 +88,54 @@ class StatisticalAnalysis:
         """
         from statsmodels.stats.power import TTestIndPower
         import numpy as np
-        
+
         # Remove NaN values
-        control_values = np.array(control_values)[~np.isnan(np.array(control_values))]
-        treatment_values = np.array(treatment_values)[~np.isnan(np.array(treatment_values))]
-        
+        control_values = np.array(
+            control_values)[~np.isnan(np.array(control_values))]
+        treatment_values = np.array(
+            treatment_values)[~np.isnan(np.array(treatment_values))]
+
         # If either group has no valid values, return 0 power
         if len(control_values) == 0 or len(treatment_values) == 0:
             return 0.0
-        
+
         # Calculate effect size (Cohen's d) if not provided
         if effect_size is None:
             # Cohen's d = (mean2 - mean1) / pooled_std
             mean1, mean2 = np.mean(control_values), np.mean(treatment_values)
-            std1, std2 = np.std(control_values, ddof=1), np.std(treatment_values, ddof=1)
-            
+            std1, std2 = np.std(control_values,
+                                ddof=1), np.std(treatment_values, ddof=1)
+
             # Pooled standard deviation
             n1, n2 = len(control_values), len(treatment_values)
-            pooled_std = np.sqrt(((n1-1)*std1**2 + (n2-1)*std2**2) / (n1+n2-2))
-            
+            pooled_std = np.sqrt(
+                ((n1 - 1) * std1**2 + (n2 - 1) * std2**2) / (n1 + n2 - 2))
+
             # Avoid division by zero
             if pooled_std == 0:
                 return 0.0
-                
+
             effect_size = abs((mean2 - mean1) / pooled_std)
-        
+
         # Initialize power analysis
         power_analysis = TTestIndPower()
-        
+
         # Calculate power
         n1, n2 = len(control_values), len(treatment_values)
-        power = power_analysis.power(effect_size=effect_size, 
-                                    nobs1=n1, 
-                                    ratio=n2/n1 if n1 > 0 else 1, 
-                                    alpha=alpha)
-        
+        power = power_analysis.power(effect_size=effect_size,
+                                     nobs1=n1,
+                                     ratio=n2 / n1 if n1 > 0 else 1,
+                                     alpha=alpha)
+
         return power
-        
+
     @staticmethod
-    def calculate_study_power(df, control_cols, treatment_cols, alpha=0.05, fc_threshold=1.0, max_proteins=500):
+    def calculate_study_power(df,
+                              control_cols,
+                              treatment_cols,
+                              alpha=0.05,
+                              fc_threshold=1.0,
+                              max_proteins=500):
         """
         Calculate overall statistical power for the study based on observed data
         
@@ -122,89 +152,90 @@ class StatisticalAnalysis:
         """
         import numpy as np
         import pandas as pd
-        
+
         total_proteins = len(df)
-        
+
         # Calculate log2FC for all proteins
         control_mean = df[control_cols].mean(axis=1)
         treatment_mean = df[treatment_cols].mean(axis=1)
         epsilon = 1e-10
         ratio = (treatment_mean + epsilon) / (control_mean + epsilon)
         log2fc = np.log2(ratio)
-        
+
         # Calculate p-values using t-test
         p_values = []
         indices_with_data = []
         effect_size_list = []
-        
+
         # Calculate effect sizes and p-values for all proteins with sufficient data
         for i, (index, row) in enumerate(df.iterrows()):
             control_values = row[control_cols].values.astype(float)
             treatment_values = row[treatment_cols].values.astype(float)
-            
+
             # Remove NaN values
             control_values = control_values[~np.isnan(control_values)]
             treatment_values = treatment_values[~np.isnan(treatment_values)]
-            
+
             # Only process proteins with enough data
             if len(control_values) >= 2 and len(treatment_values) >= 2:
                 # Calculate effect size (Cohen's d)
-                mean1, mean2 = np.mean(control_values), np.mean(treatment_values)
-                std1, std2 = np.std(control_values, ddof=1), np.std(treatment_values, ddof=1)
-                
+                mean1, mean2 = np.mean(control_values), np.mean(
+                    treatment_values)
+                std1, std2 = np.std(control_values,
+                                    ddof=1), np.std(treatment_values, ddof=1)
+
                 # Pooled standard deviation
                 n1, n2 = len(control_values), len(treatment_values)
-                pooled_std = np.sqrt(((n1-1)*std1**2 + (n2-1)*std2**2) / (n1+n2-2))
-                
+                pooled_std = np.sqrt(
+                    ((n1 - 1) * std1**2 + (n2 - 1) * std2**2) / (n1 + n2 - 2))
+
                 # Skip if pooled_std is zero
                 if pooled_std > 0:
                     effect_size = abs((mean2 - mean1) / pooled_std)
                     effect_size_list.append((i, effect_size))
                     indices_with_data.append(i)
-                    
+
                     try:
                         # Calculate p-value
                         from scipy import stats
-                        _, p_val = stats.ttest_ind(
-                            treatment_values, 
-                            control_values, 
-                            equal_var=False,
-                            nan_policy='omit'
-                        )
+                        _, p_val = stats.ttest_ind(treatment_values,
+                                                   control_values,
+                                                   equal_var=False,
+                                                   nan_policy='omit')
                         p_values.append((i, p_val))
                     except:
                         pass
-        
+
         # Filter proteins based solely on fold change
         significant_proteins = []
-        
+
         # Create dictionaries for faster lookup
         effect_size_dict = dict(effect_size_list)
         p_value_dict = dict(p_values)
-        
+
         # Calculate log2FC for protein selection
         log2fc_dict = {}
         for i in indices_with_data:
             row = df.iloc[i]
             control_values = row[control_cols].values.astype(float)
             treatment_values = row[treatment_cols].values.astype(float)
-            
+
             # Remove NaN values
             control_values = control_values[~np.isnan(control_values)]
             treatment_values = treatment_values[~np.isnan(treatment_values)]
-            
+
             if len(control_values) > 0 and len(treatment_values) > 0:
                 mean_control = np.mean(control_values)
                 mean_treatment = np.mean(treatment_values)
                 epsilon = 1e-10  # Small value to prevent log(0)
                 ratio = (mean_treatment + epsilon) / (mean_control + epsilon)
                 log2fc_dict[i] = np.log2(ratio)
-        
+
         # Select proteins that pass only the fold change threshold, regardless of p-value
         for i in indices_with_data:
             if i in log2fc_dict and abs(log2fc_dict[i]) >= fc_threshold:
                 significant_proteins.append(i)
-        
+
         # If we have significant proteins, use them
         if significant_proteins:
             indices = significant_proteins
@@ -213,61 +244,61 @@ class StatisticalAnalysis:
             # If no proteins pass the fold change threshold, use all proteins with data
             indices = indices_with_data
             sampling_method = "all"
-        
+
         # Calculate power for sampled proteins
         powers = []
         effect_sizes = []
-        
+
         for i in indices:
             row = df.iloc[i]
             control_values = row[control_cols].values.astype(float)
             treatment_values = row[treatment_cols].values.astype(float)
-            
+
             # Remove NaN values
             control_values = control_values[~np.isnan(control_values)]
             treatment_values = treatment_values[~np.isnan(treatment_values)]
-            
+
             # Skip if not enough values
             if len(control_values) < 2 or len(treatment_values) < 2:
                 continue
-                
+
             # Calculate effect size (Cohen's d)
             mean1, mean2 = np.mean(control_values), np.mean(treatment_values)
-            std1, std2 = np.std(control_values, ddof=1), np.std(treatment_values, ddof=1)
-            
+            std1, std2 = np.std(control_values,
+                                ddof=1), np.std(treatment_values, ddof=1)
+
             # Pooled standard deviation
             n1, n2 = len(control_values), len(treatment_values)
-            pooled_std = np.sqrt(((n1-1)*std1**2 + (n2-1)*std2**2) / (n1+n2-2))
-            
+            pooled_std = np.sqrt(
+                ((n1 - 1) * std1**2 + (n2 - 1) * std2**2) / (n1 + n2 - 2))
+
             # Skip if pooled_std is zero
             if pooled_std == 0:
                 continue
-                
+
             effect_size = abs((mean2 - mean1) / pooled_std)
             effect_sizes.append(effect_size)
-            
+
             # Calculate power
             from statsmodels.stats.power import TTestIndPower
             power_analysis = TTestIndPower()
-            power = power_analysis.power(
-                effect_size=effect_size, 
-                nobs1=n1, 
-                ratio=n2/n1 if n1 > 0 else 1, 
-                alpha=alpha
-            )
+            power = power_analysis.power(effect_size=effect_size,
+                                         nobs1=n1,
+                                         ratio=n2 / n1 if n1 > 0 else 1,
+                                         alpha=alpha)
             powers.append(power)
-        
+
         # Calculate mean and median power
         valid_powers = [p for p in powers if p is not None and not np.isnan(p)]
         mean_power = np.mean(valid_powers) if valid_powers else 0
         median_power = np.median(valid_powers) if valid_powers else 0
-        
+
         # Calculate how power varies with effect size
         power_by_effect_size = []
         if effect_sizes and powers:
             combined = list(zip(effect_sizes, powers))
             combined.sort(key=lambda x: x[0])  # Sort by effect size
-            
+
             # Group into bins by effect size
             bins = {}
             for es, pwr in combined:
@@ -275,7 +306,7 @@ class StatisticalAnalysis:
                 if bin_key not in bins:
                     bins[bin_key] = []
                 bins[bin_key].append(pwr)
-            
+
             # Calculate average power for each bin
             for es_bin, bin_powers in sorted(bins.items()):
                 power_by_effect_size.append({
@@ -283,7 +314,7 @@ class StatisticalAnalysis:
                     'mean_power': np.mean(bin_powers),
                     'count': len(bin_powers)
                 })
-        
+
         # Include information about sampling
         sample_size_info = {
             'total_proteins': total_proteins,
@@ -292,7 +323,7 @@ class StatisticalAnalysis:
             'control_samples': len(control_cols),
             'treatment_samples': len(treatment_cols)
         }
-        
+
         return {
             'mean_power': mean_power,
             'median_power': median_power,
@@ -300,11 +331,13 @@ class StatisticalAnalysis:
             'sample_size_info': sample_size_info,
             'fc_threshold': fc_threshold
         }
-        
+
     @staticmethod
-    def permutation_test(df: pd.DataFrame, control_cols: List[str], 
-                       treatment_cols: List[str], original_p_values: List[float], 
-                       n_permutations: int = 1000) -> List[float]:
+    def permutation_test(df: pd.DataFrame,
+                         control_cols: List[str],
+                         treatment_cols: List[str],
+                         original_p_values: List[float],
+                         n_permutations: int = 1000) -> List[float]:
         """
         Perform permutation test for multiple hypothesis correction
         
@@ -319,82 +352,286 @@ class StatisticalAnalysis:
             List of corrected p-values
         """
         import streamlit as st
-        
+
         # Create a copy of the data
         data = df.copy()
-        
+
         # Initialize counts for each protein (how many times random p-value <= original p-value)
         counts = np.zeros(len(data))
-        
+
         # Get all sample columns to permute
         all_cols = control_cols + treatment_cols
         n_control = len(control_cols)
-        
+
         # Create a Streamlit progress bar
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
+
         # Run permutations with progress bar
         for perm_idx in range(n_permutations):
             # Update progress
             progress = (perm_idx + 1) / n_permutations
             progress_bar.progress(progress)
-            status_text.text(f"Running permutation {perm_idx+1}/{n_permutations}")
-            
+            status_text.text(
+                f"Running permutation {perm_idx+1}/{n_permutations}")
+
             # Process proteins in batches for better performance
-            batch_size = min(100, len(data))  # Process up to 100 proteins at once
+            batch_size = min(100,
+                             len(data))  # Process up to 100 proteins at once
             for batch_start in range(0, len(data), batch_size):
                 batch_end = min(batch_start + batch_size, len(data))
                 batch_indices = range(batch_start, batch_end)
-                
+
                 for i in batch_indices:
                     row = data.iloc[i]
                     # Get all values across both groups for this protein
                     all_values = row[all_cols].values.astype(float)
                     all_values = all_values[~np.isnan(all_values)]
-                    
-                    if len(all_values) >= 3:  # Need at least 3 values for meaningful permutation
+
+                    if len(
+                            all_values
+                    ) >= 3:  # Need at least 3 values for meaningful permutation
                         # Randomly assign values to control and treatment
                         np.random.shuffle(all_values)
                         permuted_control = all_values[:n_control]
-                        permuted_treatment = all_values[n_control:n_control+len(treatment_cols)]
-                        
+                        permuted_treatment = all_values[n_control:n_control +
+                                                        len(treatment_cols)]
+
                         # Only compute if we have enough values in each group
-                        if len(permuted_control) > 0 and len(permuted_treatment) > 0:
+                        if len(permuted_control) > 0 and len(
+                                permuted_treatment) > 0:
                             try:
                                 # Perform t-test on permuted data
                                 _, perm_pval = stats.ttest_ind(
-                                    permuted_treatment, 
-                                    permuted_control, 
+                                    permuted_treatment,
+                                    permuted_control,
                                     equal_var=False,
-                                    nan_policy='omit'
-                                )
-                                
+                                    nan_policy='omit')
+
                                 # Increment count if permuted p-value <= original p-values[i]
                                 if perm_pval <= original_p_values[i]:
                                     counts[i] += 1
                             except:
                                 pass
-        
+
         # Clear progress indicators
         progress_bar.empty()
         status_text.empty()
-        
+
         # Calculate adjusted p-values (count + 1) / (n_permutations + 1)
         # Adding 1 to numerator and denominator prevents p-values of 0
         corrected_p_values = (counts + 1) / (n_permutations + 1)
-        
+
         return corrected_p_values
 
-
+    @staticmethod
+    def perform_pls_da(df: pd.DataFrame,
+                       group_selections: Dict[str, List[str]],
+                       n_components: int = 2) -> Dict[str, Any]:
+        """
+        Perform PLS-DA analysis on proteomics data
         
+        Args:
+            df: DataFrame with proteomics data
+            group_selections: Dictionary mapping group names to column lists
+            n_components: Number of PLS components to calculate
+            
+        Returns:
+            Dictionary containing PLS-DA results
+        """
+        try:
+            from sklearn.cross_decomposition import PLSRegression
+            from sklearn.preprocessing import LabelEncoder
+            from sklearn.model_selection import cross_val_score
+            import numpy as np
+            import pandas as pd
+        except ImportError:
+            raise ImportError("scikit-learn is required for PLS-DA analysis")
+
+        # Prepare data
+        X_data = []
+        y_labels = []
+        sample_names = []
+        group_labels = []
+
+        # Collect samples and labels
+        for group_name, columns in group_selections.items():
+            for col in columns:
+                if col in df.columns:
+                    X_data.append(df[col].values)
+                    y_labels.append(group_name)
+                    sample_names.append(col)
+                    group_labels.append(group_name)
+
+        # Convert to arrays
+        X = np.array(X_data).T  # Transpose so samples are rows
+
+        # Handle missing values
+        mask = ~np.isnan(X).any(
+            axis=1)  # Remove proteins with any missing values
+        X_clean = X[mask, :]
+        protein_indices = df.index[mask]
+
+        if X_clean.shape[0] < 10:
+            raise ValueError(
+                "Not enough proteins with complete data for PLS-DA analysis")
+
+        # Encode labels
+        label_encoder = LabelEncoder()
+        y_encoded = label_encoder.fit_transform(y_labels)
+
+        # Perform PLS-DA
+        pls = PLSRegression(n_components=n_components, scale=True)
+        pls.fit(X_clean.T, y_encoded)  # Transpose back so samples are rows
+
+        # Get scores (sample projections)
+        T = pls.x_scores_  # Sample scores
+
+        # Calculate VIP scores
+        vip_scores = StatisticalAnalysis._calculate_vip_scores(pls, X_clean.T)
+
+        # Calculate explained variance
+        explained_var = []
+        for i in range(n_components):
+            var_explained = np.var(T[:, i]) / np.sum(np.var(T, axis=0)) * 100
+            explained_var.append(var_explained)
+
+        # Perform cross-validation with proper classification scoring
+        from sklearn.model_selection import cross_val_score
+        from sklearn.metrics import accuracy_score
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        # Create a pipeline that properly handles classification
+        # We need to create a custom classifier that uses PLS for dimensionality reduction
+        # followed by a simple classifier
+        try:
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.pipeline import Pipeline
+
+            # Create pipeline: PLS for dimensionality reduction + Logistic Regression for classification
+            pipeline = Pipeline([('scaler', StandardScaler()),
+                                 ('pls',
+                                  PLSRegression(n_components=n_components,
+                                                scale=False)),
+                                 ('classifier',
+                                  LogisticRegression(random_state=42,
+                                                     max_iter=1000))])
+
+            # Custom scoring function for PLS-DA
+            def pls_da_score(estimator, X, y):
+                # Get PLS scores
+                pls_scores = estimator.named_steps['pls'].transform(X)
+                # Use logistic regression for classification
+                predictions = estimator.named_steps['classifier'].predict(
+                    pls_scores)
+                return accuracy_score(y, predictions)
+
+            # Fit the pipeline
+            pipeline.fit(X_clean.T, y_encoded)
+
+            # Perform cross-validation
+            cv_scores = cross_val_score(pipeline,
+                                        X_clean.T,
+                                        y_encoded,
+                                        cv=5,
+                                        scoring='accuracy')
+
+        except Exception as e:
+            # Fallback: manual cross-validation if pipeline fails
+            from sklearn.model_selection import KFold
+            import numpy as np
+
+            kf = KFold(n_splits=5, shuffle=True, random_state=42)
+            cv_scores = []
+
+            for train_idx, test_idx in kf.split(X_clean.T):
+                X_train, X_test = X_clean.T[train_idx], X_clean.T[test_idx]
+                y_train, y_test = y_encoded[train_idx], y_encoded[test_idx]
+
+                # Fit PLS on training data
+                pls_cv = PLSRegression(n_components=n_components, scale=True)
+                pls_cv.fit(X_train, y_train)
+
+                # Predict on test data
+                y_pred_raw = pls_cv.predict(X_test)
+
+                # Convert regression predictions to classification
+                # Round to nearest integer and clip to valid range
+                y_pred = np.round(y_pred_raw.flatten()).astype(int)
+                y_pred = np.clip(y_pred, 0, len(np.unique(y_encoded)) - 1)
+
+                # Calculate accuracy
+                accuracy = accuracy_score(y_test, y_pred)
+                cv_scores.append(accuracy)
+
+            cv_scores = np.array(cv_scores)
+
+        # Create results dictionary
+        results = {
+            'scores': T,
+            'sample_names': sample_names,
+            'group_labels': group_labels,
+            'unique_groups': label_encoder.classes_,
+            'vip_scores': vip_scores,
+            'protein_indices': protein_indices,
+            'explained_variance': explained_var,
+            'cv_accuracy': cv_scores.mean(),
+            'cv_std': cv_scores.std(),
+            'n_components': n_components,
+            'n_proteins_used': X_clean.shape[0],
+            'loadings': pls.x_loadings_
+        }
+
+        return results
+
+    @staticmethod
+    def _calculate_vip_scores(pls_model, X):
+        """
+        Calculate Variable Importance in Projection (VIP) scores
+        
+        Args:
+            pls_model: Fitted PLS model
+            X: Input data matrix
+            
+        Returns:
+            Array of VIP scores for each variable
+        """
+        t = pls_model.x_scores_
+        w = pls_model.x_weights_
+        q = pls_model.y_loadings_
+
+        m, p = X.shape
+        vip_scores = np.zeros((p, ))
+
+        s = np.diag(t.T @ t @ q.T @ q).reshape(pls_model.n_components, -1)
+        total_s = np.sum(s)
+
+        for i in range(p):
+            weight = np.array([(w[i, j] / np.linalg.norm(w[:, j]))**2
+                               for j in range(pls_model.n_components)])
+            vip_scores[i] = np.sqrt(p * (s.T @ weight) / total_s)
+
+        return vip_scores
+
+    @staticmethod
+    def correlation_analysis(
+            df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Calculate correlation matrix and p-values
+        """
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        corr_matrix = df[numeric_cols].corr()
+
         # Calculate p-values
-        p_values = pd.DataFrame(np.zeros_like(corr_matrix), columns=corr_matrix.columns, index=corr_matrix.index)
+        p_values = pd.DataFrame(np.zeros_like(corr_matrix),
+                                columns=corr_matrix.columns,
+                                index=corr_matrix.index)
         for i in range(len(corr_matrix.columns)):
             for j in range(len(corr_matrix.columns)):
                 if i != j:
-                    stat, p = stats.pearsonr(df[numeric_cols.iloc[i]].dropna(), 
-                                           df[numeric_cols.iloc[j]].dropna())
-                    p_values.iloc[i,j] = p
-                    
+                    stat, p = stats.pearsonr(df[numeric_cols.iloc[i]].dropna(),
+                                             df[numeric_cols.iloc[j]].dropna())
+                    p_values.iloc[i, j] = p
+
         return corr_matrix, p_values

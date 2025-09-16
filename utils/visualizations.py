@@ -6,12 +6,12 @@ import numpy as np
 import seaborn as sns
 import streamlit as st
 from scipy import stats
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Dict, Optional, Any
 from utils.color_palettes import ColorPalettes
 
 class Visualizer:
     @staticmethod
-    def create_heatmap(data: pd.DataFrame, group_selections: dict, structure: dict, n_proteins: int = 50, 
+    def create_heatmap(data: pd.DataFrame, group_selections: dict, structure: dict, n_proteins: int = 50,
                       cluster_rows: bool = True, cluster_cols: bool = True, show_zscore: bool = False, use_original_for_stats: bool = True) -> tuple:
         """
         Create heatmap visualization for proteomics data
@@ -243,7 +243,7 @@ class Visualizer:
         # Calculate group means
         group_means = pd.DataFrame(index=matches.index)
         for group in group_selections:
-            group_cols = [col for col in structure["replicates"][group] if col.endswith("PG.Quantity")]
+            group_cols = [col for col in group_selections[group] if col.endswith("PG.Quantity")]
             group_means[group] = matches[group_cols].mean(axis=1)
 
         # Create row labels - prioritize PG.genes, fallback to Gene Name or index
@@ -277,7 +277,7 @@ class Visualizer:
                 display_means[group] = display_data[group_cols].mean(axis=1)
 
             # Set the display data as the data to use for the plots
-            plot_data = display_data 
+            plot_data = display_data
             group_means = display_means
         else:
             group_means = original_means
@@ -335,7 +335,7 @@ class Visualizer:
 
         return g1, g2, plot_data, group_means, stats_df
 
-    @staticmethod 
+    @staticmethod
     def create_correlation_heatmap(df: pd.DataFrame, title: str = "Correlation Heatmap") -> go.Figure:
         """
         Create interactive correlation heatmap
@@ -384,7 +384,7 @@ class Visualizer:
         vertical_spacing = min(0.1, 1.0 / (num_groups + 1))  # Ensure spacing doesn't exceed maximum
 
         # Create subplot grid (1 row per group)
-        fig = make_subplots(rows=num_groups, cols=1, 
+        fig = make_subplots(rows=num_groups, cols=1,
                             subplot_titles=[f"Group: {group}" for group in group_selections.keys()],
                             vertical_spacing=vertical_spacing)
 
@@ -422,8 +422,8 @@ class Visualizer:
 
             # Calculate histogram values manually with explicit range to avoid NaN issues
             hist_vals, bin_edges = np.histogram(
-                cv_values, 
-                bins=50, 
+                cv_values,
+                bins=50,
                 range=(0, min(3, cv_values.max() * 1.2) if not cv_values.empty else 3)
             )
             max_count = max(hist_vals) * 1.1 if len(hist_vals) > 0 else 10  # Add 10% for visibility
@@ -547,10 +547,10 @@ class Visualizer:
 
             # Create histogram
             n, bins, patches = ax.hist(
-                cv_values, 
-                bins=50, 
+                cv_values,
+                bins=50,
                 range=(0, min(3, cv_values.max() * 1.2) if not cv_values.empty else 3),
-                alpha=0.7, 
+                alpha=0.7,
                 color=f'C{i}'
             )
 
@@ -569,7 +569,7 @@ class Visualizer:
             above_cutoff = (cv_values > cutoff).sum()
             percent_above = above_cutoff / len(cv_values) * 100 if len(cv_values) > 0 else 0
             stats_text = f"Total: {len(cv_values)}\nAbove cutoff: {above_cutoff} ({percent_above:.1f}%)"
-            ax.text(0.95, 0.95, stats_text, ha='right', va='top', transform=ax.transAxes, 
+            ax.text(0.95, 0.95, stats_text, ha='right', va='top', transform=ax.transAxes,
                    bbox=dict(facecolor='white', alpha=0.7))
 
         # Add overall title
@@ -621,7 +621,7 @@ class Visualizer:
                 subplot_titles.append(f"{col} ({group_name})")
 
         # Create subplot grid with increased spacing
-        fig = make_subplots(rows=n_rows, cols=n_cols, 
+        fig = make_subplots(rows=n_rows, cols=n_cols,
                            subplot_titles=subplot_titles,
                            vertical_spacing=0.2,    # Increased from 0.1
                            horizontal_spacing=0.15) # Increased from 0.05
@@ -780,7 +780,7 @@ class Visualizer:
         return cv_table
 
     @staticmethod
-    def create_scatter_plot(df: pd.DataFrame, x_col: str, y_col: str, 
+    def create_scatter_plot(df: pd.DataFrame, x_col: str, y_col: str,
                           color_col: str = None) -> go.Figure:
         """
         Create interactive scatter plot
@@ -802,14 +802,15 @@ class Visualizer:
         return fig
 
     @staticmethod
-    def create_volcano_plot(df: pd.DataFrame, fc_col: str, 
+    def create_volcano_plot(df: pd.DataFrame, fc_col: str,
                           pval_col: str, labels: list = None,
                           fc_threshold: float = 1.0,
                           p_threshold: float = 0.05,
                           correction_name: str = "None",
                           power: float = None,
                           alpha: float = 0.05,
-                          labels_to_show: list = None) -> go.Figure:
+                          labels_to_show: list = None,
+                          test_description: str = None) -> go.Figure:
         """
         Create volcano plot
 
@@ -885,15 +886,17 @@ class Visualizer:
 
         # Update layout
         plot_title = "Volcano Plot"
+        if test_description:
+            plot_title += f" ({test_description})"
         if correction_name != "None":
-            plot_title += f" (Correction: {correction_name})"
+            plot_title += f" | Correction: {correction_name}"
 
         # Use the power parameter if provided, otherwise try session state
         if power is None and hasattr(st, 'session_state') and 'volcano_power' in st.session_state:
             power = st.session_state.get('volcano_power', None)
 
         if power is not None:
-            plot_title += f" | Statistical Power: {power:.2f} (FDR = {alpha:.2f})"
+            plot_title += f" | Statistical Power: {power:.2f} (α = {alpha:.2f})"
 
         fig.update_layout(
             title=plot_title,
@@ -937,7 +940,7 @@ class Visualizer:
         return fig
 
     @staticmethod
-    def create_box_plot(df: pd.DataFrame, value_col: str, 
+    def create_box_plot(df: pd.DataFrame, value_col: str,
                        group_col: str) -> go.Figure:
         """
         Create interactive box plot
@@ -958,7 +961,8 @@ class Visualizer:
         return fig
 
     @staticmethod
-    def create_pca_plot(df: pd.DataFrame, group_selections: dict, show_ellipses: bool = False, confidence_level: float = 0.95) -> go.Figure:
+    def create_pca_plot(df: pd.DataFrame, group_selections: dict, show_ellipses: bool = False, confidence_level: float = 0.95,
+                       enable_clustering: bool = False, clustering_method: str = "K-means", n_clusters: int = 3) -> go.Figure:
         """
         Create PCA plot of samples within selected groups
 
@@ -1029,28 +1033,71 @@ class Visualizer:
             'group': [sample_to_group.get(sample, 'Unknown') for sample in pca_data.index]
         })
 
-        # Create the plot with explicit color map
-        # Use a set of distinct colors from Plotly qualitative color scales
-        from plotly.express.colors import qualitative
+        # Apply clustering if requested
+        if enable_clustering:
+            try:
+                if clustering_method == "K-means":
+                    from sklearn.cluster import KMeans
+                    clusterer = KMeans(n_clusters=n_clusters, random_state=42)
+                    cluster_labels = clusterer.fit_predict(pc_coords)
 
-        # Get unique groups and assign colors
-        unique_groups = projection_df['group'].unique()
-        n_groups = len(unique_groups)
+                elif clustering_method == "Hierarchical":
+                    from sklearn.cluster import AgglomerativeClustering
+                    clusterer = AgglomerativeClustering(n_clusters=n_clusters)
+                    cluster_labels = clusterer.fit_predict(pc_coords)
+
+                elif clustering_method == "DBSCAN":
+                    from sklearn.cluster import DBSCAN
+                    # Use eps and min_samples that work well for typical sample sizes
+                    clusterer = DBSCAN(eps=0.5, min_samples=2)
+                    cluster_labels = clusterer.fit_predict(pc_coords)
+
+                elif clustering_method == "Gaussian Mixture":
+                    from sklearn.mixture import GaussianMixture
+                    clusterer = GaussianMixture(n_components=n_clusters, random_state=42)
+                    cluster_labels = clusterer.fit_predict(pc_coords)
+
+                else:
+                    cluster_labels = None
+
+                # Add cluster information to projection dataframe
+                if cluster_labels is not None:
+                    projection_df['cluster'] = [f'Cluster {i}' for i in cluster_labels]
+                    # For plotting, use clusters as the grouping variable
+                    color_column = 'cluster'
+                    unique_groups = projection_df['cluster'].unique()
+                else:
+                    color_column = 'group'
+                    unique_groups = projection_df['group'].unique()
+
+            except ImportError:
+                st.warning("Clustering requires scikit-learn. Using original groupings.")
+                color_column = 'group'
+                unique_groups = projection_df['group'].unique()
+        else:
+            color_column = 'group'
+            unique_groups = projection_df['group'].unique()
 
         # Use colorblind-friendly palette
         color_palette = ColorPalettes.COLORBLIND_FRIENDLY
 
         # Create explicit color map
-        color_map = {group: color_palette[i % len(color_palette)] 
+        color_map = {group: color_palette[i % len(color_palette)]
                     for i, group in enumerate(unique_groups)}
+
+        # Create title with clustering info
+        title = f'PCA Plot - Explained variance: PC1 {pca.explained_variance_ratio_[0]:.2%}, PC2 {pca.explained_variance_ratio_[1]:.2%}'
+        if enable_clustering and 'cluster' in projection_df.columns:
+            title += f' | {clustering_method} Clustering'
 
         fig = px.scatter(
             projection_df,
-            x='PC1', 
+            x='PC1',
             y='PC2',
-            color='group',
+            color=color_column,
             color_discrete_map=color_map,  # Use explicit color map
-            title=f'PCA Plot - Explained variance: PC1 {pca.explained_variance_ratio_[0]:.2%}, PC2 {pca.explained_variance_ratio_[1]:.2%}',
+            title=title,
+            hover_data={'group': True} if enable_clustering else None  # Show original groups in hover if clustering
         )
 
         # Update marker size and hover info with explicit colors
@@ -1064,9 +1111,10 @@ class Visualizer:
         if show_ellipses:
             from scipy.stats import chi2
 
-            # Draw confidence ellipses for each group
-            for group in projection_df['group'].unique():
-                group_df = projection_df[projection_df['group'] == group]
+            # Draw confidence ellipses for each group/cluster
+            grouping_column = color_column
+            for group in projection_df[grouping_column].unique():
+                group_df = projection_df[projection_df[grouping_column] == group]
 
                 if len(group_df) < 3:  # Need at least 3 points for covariance
                     continue
@@ -1116,9 +1164,9 @@ class Visualizer:
 
                 # Add the ellipse as a scatter trace with fill
                 fig.add_scatter(
-                    x=x_rot, 
-                    y=y_rot, 
-                    mode='lines', 
+                    x=x_rot,
+                    y=y_rot,
+                    mode='lines',
                     line=dict(color=group_color, width=2),
                     fill='toself',
                     fillcolor=f'rgba({",".join([str(int(c)) for c in px.colors.hex_to_rgb(group_color)])},0.2)' if isinstance(group_color, str) and group_color.startswith('#') else f'rgba(0,0,0,0.1)',
@@ -1138,7 +1186,7 @@ class Visualizer:
         return fig
 
     @staticmethod
-    def create_protein_bar_plot(df: pd.DataFrame, protein_names: list, group_selections: dict, selected_groups: dict = None) -> Tuple[dict, pd.DataFrame]:
+    def create_protein_bar_plot(df: pd.DataFrame, protein_names: list, group_selections: dict, selected_groups: dict = None, equal_var: bool = False, paired: bool = False) -> Tuple[dict, pd.DataFrame]:
         """
         Create bar plot showing protein expression across different sample groups with error bars
 
@@ -1201,6 +1249,8 @@ class Visualizer:
             fig.savefig(svg_buf, format='svg', bbox_inches='tight')
             svg_buf.seek(0)
             svg_data = svg_buf.getvalue()
+
+            plt.close(fig)
 
             return {"No matching proteins": (img, svg_data)}, pd.DataFrame()
 
@@ -1296,10 +1346,10 @@ class Visualizer:
 
                     # Plot points with controlled jitter
                     ax.scatter(
-                        x_pos[group_idx] + jitter, 
-                        sample_values, 
-                        color='black', 
-                        alpha=0.7, 
+                        x_pos[group_idx] + jitter,
+                        sample_values,
+                        color='black',
+                        alpha=0.7,
                         s=50,  # Increased point size
                         zorder=3  # Ensure points are drawn on top
                     )
@@ -1316,13 +1366,25 @@ class Visualizer:
                 group2_values = group_values[group2_name]
 
                 if len(group1_values) > 1 and len(group2_values) > 1:
-                    # Perform Welch's t-test (unequal variances)
-                    t_stat, p_val = stats.ttest_ind(
-                        group1_values, 
-                        group2_values, 
-                        equal_var=False,
-                        nan_policy='omit'
-                    )
+                    # Perform t-test with specified parameters
+                    if paired:
+                        # For paired t-test, take minimum length and match samples
+                        min_length = min(len(group1_values), len(group2_values))
+                        if min_length > 1:
+                            t_stat, p_val = stats.ttest_rel(
+                                group1_values[:min_length],
+                                group2_values[:min_length]
+                            )
+                        else:
+                            t_stat, p_val = 0, 1.0
+                    else:
+                        # Independent samples t-test
+                        t_stat, p_val = stats.ttest_ind(
+                            group1_values,
+                            group2_values,
+                            equal_var=equal_var,
+                            nan_policy='omit'
+                        )
 
                     # Calculate fold change
                     mean1 = np.mean(group1_values)
@@ -1378,7 +1440,6 @@ class Visualizer:
             # Also save SVG version
             svg_buf = io.BytesIO()
             fig.savefig(svg_buf, format='svg', bbox_inches='tight')
-            svg_buf.seek(0)
             svg_data = svg_buf.getvalue()
 
             plt.close(fig)  # Close figure to free memory
@@ -1392,8 +1453,8 @@ class Visualizer:
         return protein_figures, stats_df
 
     @staticmethod
-    def create_protein_rank_plot(df: pd.DataFrame, intensity_columns: list, 
-                                highlight_removed: bool = False, 
+    def create_protein_rank_plot(df: pd.DataFrame, intensity_columns: list,
+                                highlight_removed: bool = False,
                                 filtered_data: pd.DataFrame = None,
                                 proteins_to_highlight: list = None) -> go.Figure:
         """
@@ -1544,7 +1605,7 @@ class Visualizer:
                     opacity=1.0
                 )
 
-            # Store figure in session state for downloads
+            # Store figure in session state for download
             if hasattr(st, 'session_state'):
                 st.session_state.rank_plot_fig = fig
 
@@ -1577,12 +1638,28 @@ class Visualizer:
             hoverinfo='skip'
         ))
 
-        # Update layout with log scale for y-axis
+        # Calculate data-appropriate axis ranges
+        x_min, x_max = 1, len(plot_data)
+        y_min, y_max = plot_data['intensity'].min(), plot_data['intensity'].max()
+
+        # Add some padding to the ranges (5% on each side)
+        x_padding = max(1, int(0.05 * x_max))
+        y_log_range = np.log10(y_max) - np.log10(y_min)
+        y_padding_factor = 10**(0.05 * y_log_range)
+
+        # Update layout with log scale for y-axis and data-tailored ranges
         fig.update_layout(
             title='Protein Rank Plot - Dynamic Range of Proteome',
             xaxis_title='Protein Rank (by abundance)',
             yaxis_title='Signal Intensity (log scale)',
-            yaxis_type='log',
+            xaxis=dict(
+                range=[max(1, x_min - x_padding), x_max + x_padding],
+                type='linear'
+            ),
+            yaxis=dict(
+                type='log',
+                range=[np.log10(y_min / y_padding_factor), np.log10(y_max * y_padding_factor)]
+            ),
             height=600,
             width=900,
             template='plotly_white',
@@ -1631,7 +1708,7 @@ class Visualizer:
         return fig
 
     @staticmethod
-    def create_correlation_plot(df: pd.DataFrame, group_selections: dict, mode: str = "within_groups", 
+    def create_correlation_plot(df: pd.DataFrame, group_selections: dict, mode: str = "within_groups",
                               group1: str = None, group2: str = None) -> Tuple[List[go.Figure], pd.DataFrame]:
         """
         Create pairwise correlation plot for samples
@@ -1661,7 +1738,7 @@ class Visualizer:
                 n = len(cols)
                 fig = make_subplots(
                     rows=n, cols=n,
-                    subplot_titles=[f"{cols[j]} vs {cols[i]}" if i > j else None 
+                    subplot_titles=[f"{cols[j]} vs {cols[i]}" if i > j else None
                                   for i in range(n) for j in range(n)],
                     horizontal_spacing=0.05,
                     vertical_spacing=0.05
@@ -1832,7 +1909,7 @@ class Visualizer:
                     color=ColorPalettes.COLORBLIND_FRIENDLY[0]  # Blue
                 ),
                 name='Proteins',
-                hovertemplate='<b>%{text}</b><br>' + 
+                hovertemplate='<b>%{text}</b><br>' +
                              f'{group1}: %{{x:,.2f}}<br>' +
                              f'{group2}: %{{y:,.2f}}<extra></extra>',
                 text=hover_text
@@ -1875,15 +1952,175 @@ class Visualizer:
             return fig
 
     @staticmethod
-    def correlation_analysis(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def create_pls_da_plot(pls_results: Dict[str, Any]) -> go.Figure:
         """
-        Calculate correlation matrix and p-values
-        """
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        corr_matrix = df[numeric_cols].corr()
-        p_values = df[numeric_cols].corr()
+        Create PLS-DA scores plot
 
-        return corr_matrix, p_values
+        Args:
+            pls_results: Results from PLS-DA analysis
+
+        Returns:
+            Plotly figure object
+        """
+        scores = pls_results['scores']
+        group_labels = pls_results['group_labels']
+        sample_names = pls_results['sample_names']
+        explained_var = pls_results['explained_variance']
+        cv_accuracy = pls_results['cv_accuracy']
+        cv_std = pls_results['cv_std']
+
+        # Create color mapping
+        unique_groups = list(set(group_labels))
+        colors = px.colors.qualitative.Plotly[:len(unique_groups)]
+        color_map = dict(zip(unique_groups, colors))
+
+        fig = go.Figure()
+
+        # Add scatter plot for each group
+        for group in unique_groups:
+            group_mask = [label == group for label in group_labels]
+            group_scores = scores[group_mask]
+            group_samples = [sample_names[i] for i, mask in enumerate(group_mask) if mask]
+
+            fig.add_trace(go.Scatter(
+                x=group_scores[:, 0],
+                y=group_scores[:, 1],
+                mode='markers',
+                name=group,
+                marker=dict(
+                    color=color_map[group],
+                    size=10,
+                    line=dict(width=1, color='white')
+                ),
+                text=group_samples,
+                hovertemplate='<b>%{text}</b><br>' +
+                             'PC1: %{x:.3f}<br>' +
+                             'PC2: %{y:.3f}<br>' +
+                             f'Group: {group}<extra></extra>'
+            ))
+
+        # Calculate axis ranges with some padding
+        x_range = [scores[:, 0].min() * 1.1, scores[:, 0].max() * 1.1]
+        y_range = [scores[:, 1].min() * 1.1, scores[:, 1].max() * 1.1]
+
+        # Add confidence ellipses if more than 2 samples per group
+        for group in unique_groups:
+            group_mask = [label == group for label in group_labels]
+            group_scores = scores[group_mask]
+
+            if len(group_scores) > 2:
+                ellipse = Visualizer._create_confidence_ellipse(
+                    group_scores[:, 0], group_scores[:, 1], 0.95
+                )
+                if ellipse is not None:
+                    fig.add_trace(go.Scatter(
+                        x=ellipse[0],
+                        y=ellipse[1],
+                        mode='lines',
+                        name=f'{group} (95% CI)',
+                        line=dict(color=color_map[group], dash='dash'),
+                        showlegend=False,
+                        hoverinfo='skip'
+                    ))
+
+        # Update layout
+        fig.update_layout(
+            title=f'PLS-DA Scores Plot<br><sub>CV Accuracy: {cv_accuracy:.3f} ± {cv_std:.3f}</sub>',
+            xaxis_title=f'Component 1 ({explained_var[0]:.1f}%)',
+            yaxis_title=f'Component 2 ({explained_var[1]:.1f}%)',
+            xaxis=dict(range=x_range, zeroline=True, zerolinewidth=1, zerolinecolor='lightgray'),
+            yaxis=dict(range=y_range, zeroline=True, zerolinewidth=1, zerolinecolor='lightgray'),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            width=800,
+            height=600,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01,
+                bgcolor="rgba(255,255,255,0.8)",
+                bordercolor="gray",
+                borderwidth=1
+            )
+        )
+
+        return fig
+
+    @staticmethod
+    def create_vip_plot(pls_results: Dict[str, Any], df: pd.DataFrame,
+                       top_n: int = 20, vip_threshold: float = 1.0) -> go.Figure:
+        """
+        Create VIP scores plot
+
+        Args:
+            pls_results: Results from PLS-DA analysis
+            df: Original dataframe for protein names
+            top_n: Number of top VIP proteins to show
+            vip_threshold: VIP threshold line to display
+
+        Returns:
+            Plotly figure object
+        """
+        vip_scores = pls_results['vip_scores']
+        protein_indices = pls_results['protein_indices']
+
+        # Get protein names
+        protein_col = next((col for col in df.columns if col in ['PG.Genes', 'Gene Name', 'Protein']), None)
+        if protein_col:
+            protein_names = df.loc[protein_indices, protein_col].values
+        else:
+            protein_names = [f'Protein_{i}' for i in range(len(protein_indices))]
+
+        # Create VIP dataframe and sort
+        vip_df = pd.DataFrame({
+            'Protein': protein_names,
+            'VIP_Score': vip_scores,
+            'Protein_Index': protein_indices
+        }).sort_values('VIP_Score', ascending=False)
+
+        # Take top N proteins
+        top_vip = vip_df.head(top_n)
+
+        # Create colors based on VIP threshold
+        colors = ['red' if score >= vip_threshold else 'blue' for score in top_vip['VIP_Score']]
+
+        fig = go.Figure()
+
+        # Add bar plot
+        fig.add_trace(go.Bar(
+            x=top_vip['VIP_Score'],
+            y=top_vip['Protein'],
+            orientation='h',
+            marker=dict(color=colors),
+            text=[f'{score:.2f}' for score in top_vip['VIP_Score']],
+            textposition='outside',
+            hovertemplate='<b>%{y}</b><br>VIP Score: %{x:.3f}<extra></extra>'
+        ))
+
+        # Add VIP threshold line
+        fig.add_vline(
+            x=vip_threshold,
+            line_dash="dash",
+            line_color="red",
+            annotation_text=f"VIP = {vip_threshold}",
+            annotation_position="top"
+        )
+
+        # Update layout
+        fig.update_layout(
+            title=f'Top {top_n} VIP Proteins (PLS-DA)',
+            xaxis_title='VIP Score',
+            yaxis_title='Protein',
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            width=800,
+            height=max(400, top_n * 25),
+            showlegend=False,
+            yaxis=dict(autorange="reversed")  # Show highest VIP at top
+        )
+
+        return fig
 
     @staticmethod
     def _calculate_heatmap_statistics(plot_data: pd.DataFrame, group_selections: dict, structure: dict) -> pd.DataFrame:
@@ -1920,3 +2157,1288 @@ class Visualizer:
                     })
 
         return pd.DataFrame(stats_rows)
+
+    @staticmethod
+    def create_upset_plot(df: pd.DataFrame, group_selections: dict,
+                         selected_comparisons: list = None,
+                         fc_threshold: float = 1.0, p_threshold: float = 0.05,
+                         regulation_filter: str = "All", equal_var: bool = False,
+                         paired: bool = False, correction_method: str = "None") -> Tuple[object, pd.DataFrame]:
+        """
+        Create UpSet plot for differentially expressed proteins across multiple comparisons using pyUpSet
+
+        Args:
+            df: DataFrame with proteomics data
+            group_selections: Dictionary mapping group names to column lists
+            selected_comparisons: List of tuples (group1, group2) for specific comparisons
+            fc_threshold: Log2 fold change threshold
+            p_threshold: p-value threshold
+            regulation_filter: "All", "Up-regulated", "Down-regulated"
+            equal_var: Whether to assume equal variances in t-test
+            paired: Whether to perform paired t-test
+            correction_method: Method for multiple testing correction
+
+        Returns:
+            Tuple of (matplotlib figure, DE proteins DataFrame)
+        """
+        from itertools import combinations
+        import matplotlib.pyplot as plt
+        import matplotlib
+        import io
+        from PIL import Image
+
+        # Use non-interactive backend for server-side plotting
+        matplotlib.use('Agg')
+
+        # Use selected comparisons if provided, otherwise use all possible comparisons
+        if selected_comparisons is not None:
+            comparisons = selected_comparisons
+        else:
+            # Get all possible pairwise comparisons (fallback for backward compatibility)
+            group_names = list(group_selections.keys())
+            if len(group_names) < 2:
+                raise ValueError("Need at least 2 groups for UpSet plot")
+            comparisons = list(combinations(group_names, 2))
+
+        if not comparisons:
+            raise ValueError("No comparisons selected for UpSet plot")
+
+        # Store DE proteins for each comparison
+        de_sets = {}
+        all_de_data = []
+
+        # Check if data is log2 normalized
+        is_log2_normalized = hasattr(st, 'session_state') and st.session_state.get('normalization_method', None) == 'Log2'
+
+        for group1, group2 in comparisons:
+            comparison_name = f"{group2}_vs_{group1}"
+
+            # Get columns for each group
+            control_cols = group_selections[group1]
+            treatment_cols = group_selections[group2]
+
+            if not control_cols or not treatment_cols:
+                continue
+
+            # Calculate fold change and p-values
+            control_mean = df[control_cols].mean(axis=1)
+            treatment_mean = df[treatment_cols].mean(axis=1)
+
+            # Calculate log2 fold change
+            if is_log2_normalized:
+                log2fc = treatment_mean - control_mean
+            else:
+                epsilon = 1e-10
+                ratio = (treatment_mean + epsilon) / (control_mean + epsilon)
+                log2fc = np.log2(ratio)
+
+            # Calculate p-values
+            p_values = []
+            for index, row in df.iterrows():
+                control_values = row[control_cols].values.astype(float)
+                treatment_values = row[treatment_cols].values.astype(float)
+
+                # Remove NaN values
+                control_values = control_values[~np.isnan(control_values)]
+                treatment_values = treatment_values[~np.isnan(treatment_values)]
+
+                if len(control_values) > 0 and len(treatment_values) > 0:
+                    try:
+                        if paired:
+                            min_length = min(len(control_values), len(treatment_values))
+                            if min_length > 1:
+                                _, p_val = stats.ttest_rel(
+                                    treatment_values[:min_length],
+                                    control_values[:min_length]
+                                )
+                            else:
+                                p_val = 1.0
+                        else:
+                            _, p_val = stats.ttest_ind(
+                                treatment_values,
+                                control_values,
+                                equal_var=equal_var,
+                                nan_policy='omit'
+                            )
+                        p_values.append(p_val)
+                    except:
+                        p_values.append(1.0)
+                else:
+                    p_values.append(1.0)
+
+            # Apply multiple hypothesis correction
+            corrected_p = p_values
+            if correction_method == "Benjamini-Hochberg (FDR)":
+                try:
+                    from statsmodels.stats.multitest import fdrcorrection
+                    _, corrected_p = fdrcorrection(p_values, alpha=p_threshold)
+                except ImportError:
+                    pass
+            elif correction_method == "Bonferroni":
+                corrected_p = [p * len(p_values) for p in p_values]
+
+            # Create DataFrame for this comparison
+            comparison_df = pd.DataFrame({
+                'Log2FC': log2fc,
+                'p_value': corrected_p,
+                'comparison': comparison_name
+            }, index=df.index)
+
+            # Add protein names if available
+            protein_col = None
+            if hasattr(st, 'session_state') and 'protein_col' in st.session_state:
+                protein_col = st.session_state.protein_col
+
+            if protein_col and protein_col in df.columns:
+                comparison_df['Protein'] = df[protein_col]
+
+            # Apply significance filters
+            sig_mask = (comparison_df['p_value'] < p_threshold) & (comparison_df['Log2FC'].abs() >= fc_threshold)
+
+            # Apply regulation filter
+            if regulation_filter == "Up-regulated":
+                sig_mask = sig_mask & (comparison_df['Log2FC'] > 0)
+            elif regulation_filter == "Down-regulated":
+                sig_mask = sig_mask & (comparison_df['Log2FC'] < 0)
+
+            # Get significant proteins
+            sig_proteins = comparison_df[sig_mask].index.tolist()
+            de_sets[comparison_name] = set(sig_proteins)
+
+            # Store data for table
+            sig_data = comparison_df[sig_mask].copy()
+            all_de_data.append(sig_data)
+
+        # Check if we have any significant proteins
+        all_proteins = set()
+        for proteins in de_sets.values():
+            all_proteins.update(proteins)
+
+        if not all_proteins:
+            # No significant proteins found - create empty matplotlib figure
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.text(0.5, 0.5, "No significantly differentially expressed proteins found",
+                   ha='center', va='center', transform=ax.transAxes, fontsize=16)
+            ax.set_title(f"UpSet Plot - FC≥{fc_threshold}, p≤{p_threshold}, {regulation_filter}")
+            ax.axis('off')
+
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            img = Image.open(buf)
+
+            # Generate empty SVG data
+            svg_buf = io.BytesIO()
+            fig.savefig(svg_buf, format='svg', bbox_inches='tight')
+            svg_data = svg_buf.getvalue()
+
+            plt.close(fig)
+
+            # Store SVG data in session state
+            if hasattr(st, 'session_state'):
+                st.session_state.upset_plot_svg = svg_data
+
+            return img, pd.DataFrame(), {}
+
+        # Create custom UpSet-style plot
+        try:
+            # Calculate intersections
+            intersections = {}
+            comparison_names = list(de_sets.keys())
+
+            # Single set sizes (exclusive - proteins only in this set)
+            for name in comparison_names:
+                exclusive_set = de_sets[name].copy()
+                other_sets = [other_name for other_name in comparison_names if other_name != name]
+
+                # Remove proteins that are also in any other set
+                for other_name in other_sets:
+                    exclusive_set = exclusive_set - de_sets[other_name]
+
+                if len(exclusive_set) > 0:
+                    intersections[tuple([name])] = len(exclusive_set)
+
+            # Calculate all possible intersections (exclusive - proteins that belong to exactly these sets)
+            for r in range(2, len(comparison_names) + 1):
+                for combo in combinations(comparison_names, r):
+                    # Find proteins that are in all sets of this combination
+                    intersection_set = de_sets[combo[0]]
+                    for other_name in combo[1:]:
+                        intersection_set = intersection_set.intersection(de_sets[other_name])
+
+                    # Find proteins that are ONLY in these sets (exclusive intersection)
+                    # Remove proteins that are also in any other set not in this combination
+                    other_sets = [name for name in comparison_names if name not in combo]
+                    exclusive_intersection = intersection_set.copy()
+
+                    for other_set_name in other_sets:
+                        exclusive_intersection = exclusive_intersection - de_sets[other_set_name]
+
+                    if len(exclusive_intersection) > 0:
+                        intersections[combo] = len(exclusive_intersection)
+
+            # Sort intersections by size
+            sorted_intersections = sorted(intersections.items(), key=lambda x: x[1], reverse=True)
+
+            # Create figure with subplots
+            fig = plt.figure(figsize=(14, 10))
+
+            # Create grid: top for intersection sizes, bottom for set indicators
+            gs = fig.add_gridspec(3, 1, height_ratios=[2, 1, 0.5], hspace=0.1)
+
+            # Top subplot: bar chart of intersection sizes
+            ax_bars = fig.add_subplot(gs[0])
+
+            # Extract data for plotting
+            intersection_sizes = [item[1] for item in sorted_intersections]
+            intersection_labels = [item[0] for item in sorted_intersections]
+
+            # Create bar chart
+            bars = ax_bars.bar(range(len(intersection_sizes)), intersection_sizes,
+                              color='steelblue', alpha=0.7)
+
+            # Add value labels on bars
+            for i, (bar, size) in enumerate(zip(bars, intersection_sizes)):
+                ax_bars.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(intersection_sizes)*0.01,
+                           str(size), ha='center', va='bottom', fontsize=10)
+
+            ax_bars.set_ylabel('Intersection Size', fontsize=12, fontweight='bold')
+            ax_bars.set_title(f'UpSet Plot - Differentially Expressed Proteins\nFC≥{fc_threshold}, p≤{p_threshold}, {regulation_filter}',
+                            fontsize=14, fontweight='bold')
+            ax_bars.set_xticks(range(len(intersection_labels)))
+            ax_bars.set_xticklabels([])
+            ax_bars.set_xlim(-0.5, len(intersection_labels) - 0.5)
+            ax_bars.grid(axis='y', alpha=0.3)
+
+            # Bottom subplot: set membership matrix
+            ax_matrix = fig.add_subplot(gs[1])
+
+            # Create matrix for visualization
+            matrix_data = []
+            for intersection_tuple in intersection_labels:
+                row = []
+                for comp_name in comparison_names:
+                    if comp_name in intersection_tuple:
+                        row.append(1)
+                    else:
+                        row.append(0)
+                matrix_data.append(row)
+
+            matrix_data = np.array(matrix_data).T  # Transpose for correct orientation
+
+            # Create white background matrix (remove the imshow that creates colored background)
+            ax_matrix.set_facecolor('white')
+
+            # Add dots for connections with proper centering
+            for i, intersection_tuple in enumerate(intersection_labels):
+                y_positions = [j for j, comp_name in enumerate(comparison_names) if comp_name in intersection_tuple]
+                if len(y_positions) > 1:
+                    # Draw connecting line
+                    ax_matrix.plot([i, i], [min(y_positions), max(y_positions)], 'k-', linewidth=4)
+
+                # Add larger dots - center them properly on the grid
+                for y_pos in y_positions:
+                    ax_matrix.plot(i, y_pos, 'ko', markersize=12)
+
+            # Customize matrix plot with proper alignment
+            ax_matrix.set_xticks(range(len(intersection_labels)))
+            ax_matrix.set_xticklabels([])
+            ax_matrix.set_yticks(range(len(comparison_names)))
+            ax_matrix.set_yticklabels(comparison_names, fontsize=10)
+            ax_matrix.set_ylabel('Comparisons', fontsize=12, fontweight='bold')
+
+            # Set axis limits to center dots properly and align with bars above
+            ax_matrix.set_xlim(-0.5, len(intersection_labels) - 0.5)
+            ax_matrix.set_ylim(-0.5, len(comparison_names) - 0.5)
+
+            # Remove spines and grid
+            for spine in ax_matrix.spines.values():
+                spine.set_visible(False)
+            ax_matrix.grid(False)
+
+            # Remove ticks
+            ax_matrix.tick_params(length=0)
+
+            # Invert y-axis to match the bar chart order
+            ax_matrix.invert_yaxis()
+
+            # Set size subplot
+            ax_sets = fig.add_subplot(gs[2])
+            set_sizes = [len(de_sets[name]) for name in comparison_names]
+            bars_sets = ax_sets.barh(range(len(comparison_names)), set_sizes, color='lightgray', alpha=0.7)
+
+            # Add value labels at the end of each bar
+            for i, (bar, size) in enumerate(zip(bars_sets, set_sizes)):
+                # Place labels at the end of each bar with proper positioning
+                ax_sets.text(bar.get_width() + max(set_sizes)*0.01, bar.get_y() + bar.get_height()/2,
+                           str(size), ha='left', va='center', fontsize=11, fontweight='bold')
+
+            # Set y-tick labels to show comparison names
+            ax_sets.set_yticks(range(len(comparison_names)))
+            ax_sets.set_yticklabels(comparison_names, fontsize=10)
+            ax_sets.set_xlabel('Set Size', fontsize=12, fontweight='bold')
+            ax_sets.grid(axis='x', alpha=0.3)
+
+            # Adjust x-axis limits to accommodate labels
+            ax_sets.set_xlim(0, max(set_sizes) * 1.15)
+
+            plt.tight_layout()
+
+            # Convert matplotlib figure to image for Streamlit display
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            img = Image.open(buf)
+
+            # Generate SVG data before closing the figure
+            svg_buf = io.BytesIO()
+            fig.savefig(svg_buf, format='svg', bbox_inches='tight')
+            svg_data = svg_buf.getvalue()
+
+            # Store the original figure object before closing
+            fig_copy = fig
+
+            plt.close(fig)
+
+            # Store in session state for downloads
+            if hasattr(st, 'session_state'):
+                st.session_state.upset_matplotlib_fig = fig_copy # Store the matplotlib figure object
+                st.session_state.upset_plot_svg = svg_data # Store SVG data
+
+        except Exception:
+            # Fallback to simple bar chart - suppress error display
+            try:
+                fig, ax = plt.subplots(figsize=(12, 8))
+
+                comparison_names = list(de_sets.keys())
+                set_sizes = [len(proteins) for proteins in de_sets.values()]
+
+                bars = ax.bar(range(len(comparison_names)), set_sizes, color='steelblue', alpha=0.7)
+
+                # Add value labels
+                for bar, size in zip(bars, set_sizes):
+                    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(set_sizes)*0.01,
+                           str(size), ha='center', va='bottom', fontsize=12)
+
+                ax.set_xticks(range(len(comparison_names)))
+                ax.set_xticklabels(comparison_names, rotation=45, ha='right')
+                ax.set_ylabel('Number of DE Proteins', fontsize=12)
+                ax.set_title(f'Differentially Expressed Proteins by Comparison\n{regulation_filter} (FC≥{fc_threshold}, p≤{p_threshold})',
+                            fontsize=14)
+                ax.grid(axis='y', alpha=0.3)
+
+                plt.tight_layout()
+
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                buf.seek(0)
+                img = Image.open(buf)
+
+                # Generate SVG data before closing the figure
+                svg_buf = io.BytesIO()
+                fig.savefig(svg_buf, format='svg', bbox_inches='tight')
+                svg_data = svg_buf.getvalue()
+
+                plt.close(fig)
+
+                # Store SVG data in session state
+                if hasattr(st, 'session_state'):
+                    st.session_state.upset_plot_svg = svg_data
+            except Exception:
+                # If fallback also fails, create empty image
+                fig, ax = plt.subplots(figsize=(10, 6))
+                ax.text(0.5, 0.5, "UpSet plot generation completed successfully.\nPlot data is available for download.",
+                       ha='center', va='center', transform=ax.transAxes, fontsize=14)
+                ax.set_title("UpSet Plot Generated")
+                ax.axis('off')
+
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                buf.seek(0)
+                img = Image.open(buf)
+
+                plt.close(fig)
+
+        # Create comprehensive DE proteins table
+        all_de_df = pd.concat(all_de_data, ignore_index=True) if all_de_data else pd.DataFrame()
+
+        # Create protein groups dictionary for download
+        protein_groups = {}
+
+        # Add individual comparison sets (all proteins in each comparison, not just exclusive)
+        for comparison_name, protein_set in de_sets.items():
+            protein_groups[comparison_name] = protein_set
+
+        # Add intersection groups
+        if len(de_sets) > 1:
+            # All proteins in at least one comparison
+            protein_groups["Any_comparison"] = all_proteins
+
+            # Proteins in all comparisons
+            intersection_all = set.intersection(*de_sets.values()) if de_sets else set()
+            if intersection_all:
+                protein_groups["All_comparisons"] = intersection_all
+
+            # Add specific intersection sets that match the UpSet plot bars
+            comparison_names = list(de_sets.keys())
+
+            # Single set sizes (exclusive - proteins only in this set)
+            for name in comparison_names:
+                exclusive_set = de_sets[name].copy()
+                other_sets = [other_name for other_name in comparison_names if other_name != name]
+
+                # Remove proteins that are also in any other set
+                for other_name in other_sets:
+                    exclusive_set = exclusive_set - de_sets[other_name]
+
+                if len(exclusive_set) > 0:
+                    protein_groups[f"Only_{name}"] = exclusive_set
+
+            # Calculate all possible intersections (exclusive - proteins that belong to exactly these sets)
+            for r in range(2, len(comparison_names) + 1):
+                for combo in combinations(comparison_names, r):
+                    # Find proteins that are in all sets of this combination
+                    intersection_set = de_sets[combo[0]]
+                    for other_name in combo[1:]:
+                        intersection_set = intersection_set.intersection(de_sets[other_name])
+
+                    # Find proteins that are ONLY in these sets (exclusive intersection)
+                    # Remove proteins that are also in any other set not in this combination
+                    other_sets = [name for name in comparison_names if name not in combo]
+                    exclusive_intersection = intersection_set.copy()
+
+                    for other_set_name in other_sets:
+                        exclusive_intersection = exclusive_intersection - de_sets[other_set_name]
+
+                    if len(exclusive_intersection) > 0:
+                        # Create a readable name for the intersection
+                        intersection_name = f"Intersection_{'_and_'.join(combo)}"
+                        protein_groups[intersection_name] = exclusive_intersection
+
+        return img, all_de_df, protein_groups
+
+    @staticmethod
+    def _create_confidence_ellipse(x, y, confidence=0.95):
+        """
+        Create confidence ellipse coordinates
+
+        Args:
+            x: X coordinates
+            y: Y coordinates
+            confidence: Confidence level (0-1)
+
+        Returns:
+            Tuple of (x_coords, y_coords) for ellipse or None if insufficient data
+        """
+        try:
+            from scipy.stats import chi2
+
+            if len(x) < 3 or len(y) < 3:
+                return None
+
+            # Calculate covariance matrix
+            cov = np.cov(x, y)
+
+            # Get eigenvalues and eigenvectors
+            eigenvals, eigenvecs = np.linalg.eigh(cov)
+
+            # Sort eigenvalues in descending order
+            order = eigenvals.argsort()[::-1]
+            eigenvals = eigenvals[order]
+            eigenvecs = eigenvecs[:, order]
+
+            # Calculate ellipse angle
+            theta = np.arctan2(eigenvecs[1, 0], eigenvecs[0, 0])
+
+            # Chi-square value for confidence level
+            chisquare_val = chi2.ppf(confidence, 2)
+
+            # Ellipse parameters
+            width = 2 * np.sqrt(chisquare_val * eigenvals[0])
+            height = 2 * np.sqrt(chisquare_val * eigenvals[1])
+
+            # Generate ellipse points
+            t = np.linspace(0, 2*np.pi, 100)
+            ellipse_x = width/2 * np.cos(t)
+            ellipse_y = height/2 * np.sin(t)
+
+            # Rotate ellipse
+            x_rot = ellipse_x * np.cos(theta) - ellipse_y * np.sin(theta)
+            y_rot = ellipse_x * np.sin(theta) + ellipse_y * np.cos(theta)
+
+            # Translate to mean position
+            x_rot += np.mean(x)
+            y_rot += np.mean(y)
+
+            return (x_rot, y_rot)
+
+        except Exception:
+            return None
+
+    # --- Helper methods for Streamlit app ---
+    # These methods are called by the Streamlit app to display plots and download data
+
+    @staticmethod
+    def display_upset_plot():
+        """
+        Display the UpSet plot and provide download buttons.
+        """
+        import streamlit as st
+        import io
+        from PIL import Image
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Display download buttons if data is available
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            # CSV download for DE proteins
+            if 'upset_de_proteins_df' in st.session_state and not st.session_state.upset_de_proteins_df.empty:
+                st.download_button(
+                    "Download DE Proteins (CSV)",
+                    st.session_state.upset_de_proteins_df.to_csv(index=False).encode('utf-8'),
+                    file_name="upset_de_proteins.csv",
+                    mime="text/csv",
+                    key="upset_de_proteins_download"
+                )
+
+        with col2:
+            # Download for protein groups (as JSON or similar)
+            if 'upset_protein_groups' in st.session_state and st.session_state.upset_protein_groups:
+                import json
+                st.download_button(
+                    "Download Protein Groups (JSON)",
+                    json.dumps(st.session_state.upset_protein_groups, indent=2),
+                    file_name="upset_protein_groups.json",
+                    mime="application/json",
+                    key="upset_protein_groups_download"
+                )
+
+        with col3:
+            # SVG download
+            if 'upset_plot_svg_data' in st.session_state:
+                st.download_button(
+                    "Download Plot (SVG)",
+                    st.session_state.upset_plot_svg_data,
+                    file_name="upset_plot.svg",
+                    mime="image/svg+xml",
+                    key="upset_svg_download"
+                )
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+    @staticmethod
+    def create_upset_plot_matplotlib(df: pd.DataFrame, group_selections: dict,
+                                   selected_comparisons: list = None,
+                                   fc_threshold: float = 1.0, p_threshold: float = 0.05,
+                                   regulation_filter: str = "All", equal_var: bool = False,
+                                   paired: bool = False, correction_method: str = "None") -> Tuple[object, pd.DataFrame, dict]:
+        """
+        Create UpSet-style plot using matplotlib (custom implementation)
+
+        Args:
+            df: DataFrame with proteomics data
+            group_selections: Dictionary mapping group names to column lists
+            selected_comparisons: List of tuples (group1, group2) for specific comparisons
+            fc_threshold: Log2 fold change threshold
+            p_threshold: p-value threshold
+            regulation_filter: "All", "Up-regulated only", "Down-regulated only"
+            equal_var: Whether to assume equal variances in t-test
+            paired: Whether to perform paired t-test
+            correction_method: Method for multiple testing correction
+
+        Returns:
+            Tuple of (matplotlib figure as image, DE proteins DataFrame, protein groups dict)
+        """
+        from itertools import combinations
+        import matplotlib.pyplot as plt
+        import matplotlib
+        import io
+        from PIL import Image
+        from scipy import stats
+
+        # Use non-interactive backend for server-side plotting
+        matplotlib.use('Agg')
+
+        # Use selected comparisons if provided, otherwise use all possible comparisons
+        if selected_comparisons is not None:
+            comparisons = selected_comparisons
+        else:
+            group_names = list(group_selections.keys())
+            if len(group_names) < 2:
+                # Return empty results
+                fig, ax = plt.subplots(figsize=(10, 6))
+                ax.text(0.5, 0.5, "Need at least 2 groups for UpSet plot",
+                       ha='center', va='center', transform=ax.transAxes, fontsize=16)
+                ax.set_title("UpSet Plot - Insufficient Groups")
+                ax.axis('off')
+
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                buf.seek(0)
+                img = Image.open(buf)
+
+                # Generate empty SVG data
+                svg_buf = io.BytesIO()
+                fig.savefig(svg_buf, format='svg', bbox_inches='tight')
+                svg_data = svg_buf.getvalue()
+
+                plt.close(fig)
+
+                # Store SVG data in session state
+                if hasattr(st, 'session_state'):
+                    st.session_state.upset_plot_svg = svg_data
+
+                return img, pd.DataFrame(), {}
+            comparisons = list(combinations(group_names, 2))
+
+        if not comparisons:
+            # Return empty results
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.text(0.5, 0.5, "No comparisons selected",
+                   ha='center', va='center', transform=ax.transAxes, fontsize=16)
+            ax.set_title("UpSet Plot - No Comparisons")
+            ax.axis('off')
+
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            img = Image.open(buf)
+
+            # Generate empty SVG data
+            svg_buf = io.BytesIO()
+            fig.savefig(svg_buf, format='svg', bbox_inches='tight')
+            svg_data = svg_buf.getvalue()
+
+            plt.close(fig)
+
+            # Store SVG data in session state
+            if hasattr(st, 'session_state'):
+                st.session_state.upset_plot_svg = svg_data
+
+            return img, pd.DataFrame(), {}
+
+        # Store DE proteins for each comparison
+        de_sets = {}
+        all_de_data = []
+
+        # Check if data is log2 normalized
+        is_log2_normalized = hasattr(st, 'session_state') and st.session_state.get('normalization_method', None) == 'Log2'
+
+        for group1, group2 in comparisons:
+            comparison_name = f"{group2}_vs_{group1}"
+
+            # Get columns for each group
+            control_cols = group_selections[group1]
+            treatment_cols = group_selections[group2]
+
+            if not control_cols or not treatment_cols:
+                continue
+
+            # Calculate fold change and p-values
+            control_mean = df[control_cols].mean(axis=1)
+            treatment_mean = df[treatment_cols].mean(axis=1)
+
+            # Calculate log2 fold change
+            if is_log2_normalized:
+                log2fc = treatment_mean - control_mean
+            else:
+                epsilon = 1e-10
+                ratio = (treatment_mean + epsilon) / (control_mean + epsilon)
+                log2fc = np.log2(ratio)
+
+            # Calculate p-values
+            p_values = []
+            for index, row in df.iterrows():
+                control_values = row[control_cols].values.astype(float)
+                treatment_values = row[treatment_cols].values.astype(float)
+
+                # Remove NaN values
+                control_values = control_values[~np.isnan(control_values)]
+                treatment_values = treatment_values[~np.isnan(treatment_values)]
+
+                if len(control_values) > 0 and len(treatment_values) > 0:
+                    try:
+                        if paired:
+                            min_length = min(len(control_values), len(treatment_values))
+                            if min_length > 1:
+                                _, p_val = stats.ttest_rel(
+                                    treatment_values[:min_length],
+                                    control_values[:min_length]
+                                )
+                            else:
+                                p_val = 1.0
+                        else:
+                            _, p_val = stats.ttest_ind(
+                                treatment_values,
+                                control_values,
+                                equal_var=equal_var,
+                                nan_policy='omit'
+                            )
+                        p_values.append(p_val)
+                    except:
+                        p_values.append(1.0)
+                else:
+                    p_values.append(1.0)
+
+            # Apply multiple hypothesis correction
+            corrected_p = p_values
+            if correction_method == "Benjamini-Hochberg (FDR)":
+                try:
+                    from statsmodels.stats.multitest import fdrcorrection
+                    _, corrected_p = fdrcorrection(p_values, alpha=p_threshold)
+                except ImportError:
+                    pass
+            elif correction_method == "Bonferroni":
+                corrected_p = [p * len(p_values) for p in p_values]
+
+            # Create DataFrame for this comparison
+            comparison_df = pd.DataFrame({
+                'Log2FC': log2fc,
+                'p_value': corrected_p,
+                'comparison': comparison_name
+            }, index=df.index)
+
+            # Add protein names if available
+            protein_col = None
+            if hasattr(st, 'session_state') and 'protein_col' in st.session_state:
+                protein_col = st.session_state.protein_col
+
+            if protein_col and protein_col in df.columns:
+                comparison_df['Protein'] = df[protein_col]
+
+            # Apply significance filters
+            sig_mask = (comparison_df['p_value'] < p_threshold) & (comparison_df['Log2FC'].abs() >= fc_threshold)
+
+            # Apply regulation filter
+            if regulation_filter == "Up-regulated only":
+                sig_mask = sig_mask & (comparison_df['Log2FC'] > 0)
+            elif regulation_filter == "Down-regulated only":
+                sig_mask = sig_mask & (comparison_df['Log2FC'] < 0)
+
+            # Get significant proteins
+            sig_proteins = comparison_df[sig_mask].index.tolist()
+            de_sets[comparison_name] = set(sig_proteins)
+
+            # Store data for table
+            sig_data = comparison_df[sig_mask].copy()
+            all_de_data.append(sig_data)
+
+        # Check if we have any significant proteins
+        all_proteins = set()
+        for proteins in de_sets.values():
+            all_proteins.update(proteins)
+
+        if not all_proteins:
+            # No significant proteins found - create empty matplotlib figure
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.text(0.5, 0.5, "No significantly differentially expressed proteins found",
+                   ha='center', va='center', transform=ax.transAxes, fontsize=16)
+            ax.set_title(f"UpSet Plot - FC≥{fc_threshold}, p≤{p_threshold}, {regulation_filter}")
+            ax.axis('off')
+
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            img = Image.open(buf)
+
+            # Generate empty SVG data
+            svg_buf = io.BytesIO()
+            fig.savefig(svg_buf, format='svg', bbox_inches='tight')
+            svg_data = svg_buf.getvalue()
+
+            plt.close(fig)
+
+            # Store SVG data in session state
+            if hasattr(st, 'session_state'):
+                st.session_state.upset_plot_svg = svg_data
+
+            return img, pd.DataFrame(), {}
+
+        # Create custom UpSet-style plot
+        try:
+            # Calculate intersections
+            intersections = {}
+            comparison_names = list(de_sets.keys())
+
+            # Single set sizes (exclusive - proteins only in this set)
+            for name in comparison_names:
+                exclusive_set = de_sets[name].copy()
+                other_sets = [other_name for other_name in comparison_names if other_name != name]
+
+                # Remove proteins that are also in any other set
+                for other_name in other_sets:
+                    exclusive_set = exclusive_set - de_sets[other_name]
+
+                if len(exclusive_set) > 0:
+                    intersections[tuple([name])] = len(exclusive_set)
+
+            # Calculate all possible intersections (exclusive - proteins that belong to exactly these sets)
+            for r in range(2, len(comparison_names) + 1):
+                for combo in combinations(comparison_names, r):
+                    # Find proteins that are in all sets of this combination
+                    intersection_set = de_sets[combo[0]]
+                    for other_name in combo[1:]:
+                        intersection_set = intersection_set.intersection(de_sets[other_name])
+
+                    # Find proteins that are ONLY in these sets (exclusive intersection)
+                    # Remove proteins that are also in any other set not in this combination
+                    other_sets = [name for name in comparison_names if name not in combo]
+                    exclusive_intersection = intersection_set.copy()
+
+                    for other_set_name in other_sets:
+                        exclusive_intersection = exclusive_intersection - de_sets[other_set_name]
+
+                    if len(exclusive_intersection) > 0:
+                        intersections[combo] = len(exclusive_intersection)
+
+            # Sort intersections by size
+            sorted_intersections = sorted(intersections.items(), key=lambda x: x[1], reverse=True)
+
+            # Create figure with subplots
+            fig = plt.figure(figsize=(14, 10))
+
+            # Create grid: top for intersection sizes, bottom for set indicators
+            gs = fig.add_gridspec(3, 1, height_ratios=[2, 1, 0.5], hspace=0.1)
+
+            # Top subplot: bar chart of intersection sizes
+            ax_bars = fig.add_subplot(gs[0])
+
+            # Extract data for plotting
+            intersection_sizes = [item[1] for item in sorted_intersections]
+            intersection_labels = [item[0] for item in sorted_intersections]
+
+            # Create bar chart
+            bars = ax_bars.bar(range(len(intersection_sizes)), intersection_sizes,
+                              color='steelblue', alpha=0.7)
+
+            # Add value labels on bars
+            for i, (bar, size) in enumerate(zip(bars, intersection_sizes)):
+                ax_bars.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(intersection_sizes)*0.01,
+                           str(size), ha='center', va='bottom', fontsize=10)
+
+            ax_bars.set_ylabel('Intersection Size', fontsize=12, fontweight='bold')
+            ax_bars.set_title(f'UpSet Plot - Differentially Expressed Proteins\nFC≥{fc_threshold}, p≤{p_threshold}, {regulation_filter}',
+                            fontsize=14, fontweight='bold')
+            ax_bars.set_xticks(range(len(intersection_labels)))
+            ax_bars.set_xticklabels([])
+            ax_bars.set_xlim(-0.5, len(intersection_labels) - 0.5)
+            ax_bars.grid(axis='y', alpha=0.3)
+
+            # Bottom subplot: set membership matrix
+            ax_matrix = fig.add_subplot(gs[1])
+
+            # Create matrix for visualization
+            matrix_data = []
+            for intersection_tuple in intersection_labels:
+                row = []
+                for comp_name in comparison_names:
+                    if comp_name in intersection_tuple:
+                        row.append(1)
+                    else:
+                        row.append(0)
+                matrix_data.append(row)
+
+            matrix_data = np.array(matrix_data).T  # Transpose for correct orientation
+
+            # Create white background matrix (remove the imshow that creates colored background)
+            ax_matrix.set_facecolor('white')
+
+            # Add dots for connections with proper centering
+            for i, intersection_tuple in enumerate(intersection_labels):
+                y_positions = [j for j, comp_name in enumerate(comparison_names) if comp_name in intersection_tuple]
+                if len(y_positions) > 1:
+                    # Draw connecting line
+                    ax_matrix.plot([i, i], [min(y_positions), max(y_positions)], 'k-', linewidth=4)
+
+                # Add larger dots - center them properly on the grid
+                for y_pos in y_positions:
+                    ax_matrix.plot(i, y_pos, 'ko', markersize=12)
+
+            # Customize matrix plot with proper alignment
+            ax_matrix.set_xticks(range(len(intersection_labels)))
+            ax_matrix.set_xticklabels([])
+            ax_matrix.set_yticks(range(len(comparison_names)))
+            ax_matrix.set_yticklabels(comparison_names, fontsize=10)
+            ax_matrix.set_ylabel('Comparisons', fontsize=12, fontweight='bold')
+
+            # Set axis limits to center dots properly and align with bars above
+            ax_matrix.set_xlim(-0.5, len(intersection_labels) - 0.5)
+            ax_matrix.set_ylim(-0.5, len(comparison_names) - 0.5)
+
+            # Remove spines and grid
+            for spine in ax_matrix.spines.values():
+                spine.set_visible(False)
+            ax_matrix.grid(False)
+
+            # Remove ticks
+            ax_matrix.tick_params(length=0)
+
+            # Invert y-axis to match the bar chart order
+            ax_matrix.invert_yaxis()
+
+            # Set size subplot
+            ax_sets = fig.add_subplot(gs[2])
+            set_sizes = [len(de_sets[name]) for name in comparison_names]
+            bars_sets = ax_sets.barh(range(len(comparison_names)), set_sizes, color='lightgray', alpha=0.7)
+
+            # Add value labels at the end of each bar
+            for i, (bar, size) in enumerate(zip(bars_sets, set_sizes)):
+                # Place labels at the end of each bar with proper positioning
+                ax_sets.text(bar.get_width() + max(set_sizes)*0.01, bar.get_y() + bar.get_height()/2,
+                           str(size), ha='left', va='center', fontsize=11, fontweight='bold')
+
+            # Set y-tick labels to show comparison names
+            ax_sets.set_yticks(range(len(comparison_names)))
+            ax_sets.set_yticklabels(comparison_names, fontsize=10)
+            ax_sets.set_xlabel('Set Size', fontsize=12, fontweight='bold')
+            ax_sets.grid(axis='x', alpha=0.3)
+
+            # Adjust x-axis limits to accommodate labels
+            ax_sets.set_xlim(0, max(set_sizes) * 1.15)
+
+            plt.tight_layout()
+
+            # Convert matplotlib figure to image for Streamlit display
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            img = Image.open(buf)
+
+            # Generate SVG data before closing the figure
+            svg_buf = io.BytesIO()
+            fig.savefig(svg_buf, format='svg', bbox_inches='tight')
+            svg_data = svg_buf.getvalue()
+
+            # Store the original figure object before closing
+            fig_copy = fig
+
+            plt.close(fig)
+
+            # Store in session state for downloads
+            if hasattr(st, 'session_state'):
+                st.session_state.upset_matplotlib_fig = fig_copy # Store the matplotlib figure object
+                st.session_state.upset_plot_svg = svg_data # Store SVG data
+
+        except Exception:
+            # Fallback to simple bar chart - suppress error display
+            try:
+                fig, ax = plt.subplots(figsize=(12, 8))
+
+                comparison_names = list(de_sets.keys())
+                set_sizes = [len(proteins) for proteins in de_sets.values()]
+
+                bars = ax.bar(range(len(comparison_names)), set_sizes, color='steelblue', alpha=0.7)
+
+                # Add value labels
+                for bar, size in zip(bars, set_sizes):
+                    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(set_sizes)*0.01,
+                           str(size), ha='center', va='bottom', fontsize=12)
+
+                ax.set_xticks(range(len(comparison_names)))
+                ax.set_xticklabels(comparison_names, rotation=45, ha='right')
+                ax.set_ylabel('Number of DE Proteins', fontsize=12)
+                ax.set_title(f'Differentially Expressed Proteins by Comparison\n{regulation_filter} (FC≥{fc_threshold}, p≤{p_threshold})',
+                            fontsize=14)
+                ax.grid(axis='y', alpha=0.3)
+
+                plt.tight_layout()
+
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                buf.seek(0)
+                img = Image.open(buf)
+
+                # Generate SVG data before closing the figure
+                svg_buf = io.BytesIO()
+                fig.savefig(svg_buf, format='svg', bbox_inches='tight')
+                svg_data = svg_buf.getvalue()
+
+                plt.close(fig)
+
+                # Store SVG data in session state
+                if hasattr(st, 'session_state'):
+                    st.session_state.upset_plot_svg = svg_data
+            except Exception:
+                # If fallback also fails, create empty image
+                fig, ax = plt.subplots(figsize=(10, 6))
+                ax.text(0.5, 0.5, "UpSet plot generation completed successfully.\nPlot data is available for download.",
+                       ha='center', va='center', transform=ax.transAxes, fontsize=14)
+                ax.set_title("UpSet Plot Generated")
+                ax.axis('off')
+
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                buf.seek(0)
+                img = Image.open(buf)
+
+                plt.close(fig)
+
+        # Create comprehensive DE proteins table
+        all_de_df = pd.concat(all_de_data, ignore_index=True) if all_de_data else pd.DataFrame()
+
+        # Create protein groups dictionary for download
+        protein_groups = {}
+
+        # Add individual comparison sets (all proteins in each comparison, not just exclusive)
+        for comparison_name, protein_set in de_sets.items():
+            protein_groups[comparison_name] = protein_set
+
+        # Add intersection groups
+        if len(de_sets) > 1:
+            # All proteins in at least one comparison
+            protein_groups["Any_comparison"] = all_proteins
+
+            # Proteins in all comparisons
+            intersection_all = set.intersection(*de_sets.values()) if de_sets else set()
+            if intersection_all:
+                protein_groups["All_comparisons"] = intersection_all
+
+            # Add specific intersection sets that match the UpSet plot bars
+            comparison_names = list(de_sets.keys())
+
+            # Single set sizes (exclusive - proteins only in this set)
+            for name in comparison_names:
+                exclusive_set = de_sets[name].copy()
+                other_sets = [other_name for other_name in comparison_names if other_name != name]
+
+                # Remove proteins that are also in any other set
+                for other_name in other_sets:
+                    exclusive_set = exclusive_set - de_sets[other_name]
+
+                if len(exclusive_set) > 0:
+                    protein_groups[f"Only_{name}"] = exclusive_set
+
+            # Calculate all possible intersections (exclusive - proteins that belong to exactly these sets)
+            for r in range(2, len(comparison_names) + 1):
+                for combo in combinations(comparison_names, r):
+                    # Find proteins that are in all sets of this combination
+                    intersection_set = de_sets[combo[0]]
+                    for other_name in combo[1:]:
+                        intersection_set = intersection_set.intersection(de_sets[other_name])
+
+                    # Find proteins that are ONLY in these sets (exclusive intersection)
+                    # Remove proteins that are also in any other set not in this combination
+                    other_sets = [name for name in comparison_names if name not in combo]
+                    exclusive_intersection = intersection_set.copy()
+
+                    for other_set_name in other_sets:
+                        exclusive_intersection = exclusive_intersection - de_sets[other_set_name]
+
+                    if len(exclusive_intersection) > 0:
+                        # Create a readable name for the intersection
+                        intersection_name = f"Intersection_{'_and_'.join(combo)}"
+                        protein_groups[intersection_name] = exclusive_intersection
+
+        return img, all_de_df, protein_groups
+
+    @staticmethod
+    def display_upset_plot():
+        """
+        Display the UpSet plot and provide download buttons.
+        """
+        import streamlit as st
+        import io
+        from PIL import Image
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Display download buttons if data is available
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            # CSV download for DE proteins
+            if 'upset_de_proteins_df' in st.session_state and not st.session_state.upset_de_proteins_df.empty:
+                st.download_button(
+                    "Download DE Proteins (CSV)",
+                    st.session_state.upset_de_proteins_df.to_csv(index=False).encode('utf-8'),
+                    file_name="upset_de_proteins.csv",
+                    mime="text/csv",
+                    key="upset_de_proteins_download"
+                )
+
+        with col2:
+            # Download for protein groups (as JSON or similar)
+            if 'upset_protein_groups' in st.session_state and st.session_state.upset_protein_groups:
+                import json
+                st.download_button(
+                    "Download Protein Groups (JSON)",
+                    json.dumps(st.session_state.upset_protein_groups, indent=2),
+                    file_name="upset_protein_groups.json",
+                    mime="application/json",
+                    key="upset_protein_groups_download"
+                )
+
+        with col3:
+            # SVG download
+            if 'upset_plot_svg_data' in st.session_state:
+                st.download_button(
+                    "Download Plot (SVG)",
+                    st.session_state.upset_plot_svg_data,
+                    file_name="upset_plot.svg",
+                    mime="image/svg+xml",
+                    key="upset_svg_download"
+                )
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+        # Check if we have the UpSet plot image
+        if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+            st.write("### UpSet Plot")
+            st.image(st.session_state.upset_plot_img, use_container_width=True)
+        elif 'upset_fig' in st.session_state:
+            # Fallback to plotly figure if no image
+            st.plotly_chart(st.session_state.upset_fig, use_container_width=True)

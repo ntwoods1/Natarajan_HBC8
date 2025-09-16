@@ -66,7 +66,7 @@ if use_example_data:
         st.write(f"Example dataset contains {df.shape[0]} proteins and {df.shape[1]} columns.")
         
         # Option to automatically set up sample groups with example data
-        auto_setup = st.checkbox("Automatically set up sample groups", value=True,
+        auto_setup = st.checkbox("Automatically set up sample groups", value=False,
                               help="Automatically configure the sample groups based on the structure of the example dataset")
         
         if auto_setup:

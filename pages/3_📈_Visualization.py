@@ -30,12 +30,14 @@ Generate interactive plots and visualizations of your processed data.
 #### Available Visualizations:
 - **Volcano Plot**: Compare differential expression between groups
 - **PCA Plot**: Visualize sample clustering in reduced dimensional space
+- **PLS-DA Analysis**: Supervised analysis to identify discriminating proteins and VIP scores
 - **Intensity Histograms**: View distribution of expression values
 - **Protein Rank Plot**: Analyze overall protein abundance
 - **Protein Expression Bar Plot**: Compare expression of specific proteins
 - **Correlation Plot**: Examine relationships between samples
 - **Heatmap**: Visualize expression patterns across samples
 - **Custom Protein Heatmap**: Generate heatmaps for specific proteins
+- **UpSet Plot**: Visualize overlaps of differentially expressed proteins across comparisons
 
 All plots can be downloaded as interactive HTML files or as publication-quality SVG files.
 """)
@@ -59,7 +61,7 @@ else:
 
     plot_type = st.selectbox(
         "Select Plot Type",
-        ["Volcano Plot", "PCA Plot", "Intensity Histograms", "Protein Rank Plot", "Protein Expression Bar Plot", "Correlation Plot", "Heatmap", "Custom Protein Heatmap"]
+        ["Volcano Plot", "PCA Plot", "PLS-DA Analysis", "Intensity Histograms", "Protein Rank Plot", "Protein Expression Bar Plot", "Correlation Plot", "Heatmap", "Custom Protein Heatmap", "UpSet Plot"]
     )
 
     # Volcano Plot section
@@ -79,8 +81,8 @@ else:
             with col1:
                 control_group = st.selectbox("Select control group", group_names, index=0)
             with col2:
-                treatment_group = st.selectbox("Select treatment group", 
-                                                [g for g in group_names if g != control_group], 
+                treatment_group = st.selectbox("Select treatment group",
+                                                [g for g in group_names if g != control_group],
                                                 index=0 if len(group_names) > 1 else None)
 
             # Add fold change threshold slider
@@ -94,6 +96,29 @@ else:
                     step=0.1,
                     help="Proteins with absolute Log2FC greater than this value will be considered significant"
                 )
+
+            # Add t-test type selection options
+            st.subheader("Statistical Test Settings")
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                test_type = st.selectbox(
+                    "T-test type:",
+                    ["Independent samples", "Paired samples"],
+                    help="Independent: compares two separate groups. Paired: compares matched pairs (e.g., before/after)"
+                )
+
+            with col2:
+                equal_variance = st.selectbox(
+                    "Variance assumption:",
+                    ["Unequal variances (Welch's)", "Equal variances (Student's)"],
+                    help="Welch's t-test doesn't assume equal variances. Student's t-test assumes equal variances."
+                )
+
+            with col3:
+                # Show warning for paired test
+                if test_type == "Paired samples":
+                    st.warning("⚠️ Paired t-test requires equal number of samples in both groups with corresponding order.")
 
             # Add multiple hypothesis correction options
             correction_method = st.selectbox(
@@ -169,6 +194,15 @@ else:
                             'Log2FC': log2fc
                         })
 
+                        # Set t-test parameters based on user selection
+                        use_equal_var = (equal_variance == "Equal variances (Student's)")
+                        is_paired = (test_type == "Paired samples")
+
+                        # Validate paired test requirements
+                        if is_paired and len(control_cols) != len(treatment_cols):
+                            st.error(f"Paired t-test requires equal number of samples. Control: {len(control_cols)}, Treatment: {len(treatment_cols)}")
+                            st.stop()
+
                         # Calculate p-values
                         p_values = []
                         for index, row in df.iterrows():
@@ -181,13 +215,24 @@ else:
 
                             if len(control_values) > 0 and len(treatment_values) > 0:
                                 try:
-                                    # Perform t-test
-                                    _, p_val = stats.ttest_ind(
-                                        treatment_values, 
-                                        control_values, 
-                                        equal_var=False,
-                                        nan_policy='omit'
-                                    )
+                                    if is_paired:
+                                        # For paired t-test, we need matching samples
+                                        min_length = min(len(control_values), len(treatment_values))
+                                        if min_length > 1:
+                                            _, p_val = stats.ttest_rel(
+                                                treatment_values[:min_length],
+                                                control_values[:min_length]
+                                            )
+                                        else:
+                                            p_val = 1.0
+                                    else:
+                                        # Independent samples t-test
+                                        _, p_val = stats.ttest_ind(
+                                            treatment_values,
+                                            control_values,
+                                            equal_var=use_equal_var,
+                                            nan_policy='omit'
+                                        )
                                     p_values.append(p_val)
                                 except:
                                     p_values.append(1.0)  # Default to 1 on error
@@ -214,7 +259,7 @@ else:
                                 elif correction_method == "Permutation Test (1000 iterations)":
                                     # Perform permutation test
                                     corrected_p = StatisticalAnalysis.permutation_test(
-                                        df, control_cols, treatment_cols, 
+                                        df, control_cols, treatment_cols,
                                         p_values, n_permutations=n_permutations
                                     )
                                     result_df['corrected_p_value'] = corrected_p
@@ -242,10 +287,10 @@ else:
                         # Calculate overall study power with fixed alpha=0.01 regardless of user p-value setting
                         with st.spinner(f"Calculating statistical power using proteins that pass the log2 fold-change threshold (alpha=0.01 for power calculation)..."):
                             # Call the power calculation method using proteins filtered by fold-change
-                            # Note: We use a fixed alpha=0.01 for power calculation regardless of the p-value threshold for significance
+                            # Note: We use a fixed alpha=0.01 for power analysis regardless of the p-value threshold for significance
                             power_results = StatisticalAnalysis.calculate_study_power(
-                                df, 
-                                control_cols, 
+                                df,
+                                control_cols,
                                 treatment_cols,
                                 alpha=0.01,  # Fixed alpha=0.01 for power analysis
                                 fc_threshold=fc_threshold,
@@ -265,16 +310,18 @@ else:
                             st.session_state.volcano_power = mean_power
 
                         # Create volcano plot with custom thresholds and power information
+                        test_description = f"{'Paired' if is_paired else 'Independent'} t-test ({'Equal var.' if use_equal_var else 'Unequal var.'})"
                         fig = Visualizer.create_volcano_plot(
-                            result_df, 
-                            'Log2FC', 
+                            result_df,
+                            'Log2FC',
                             p_value_col,
                             labels=result_df['Protein'].tolist() if 'Protein' in result_df.columns else None,
                             fc_threshold=fc_threshold,
                             p_threshold=p_threshold,
                             correction_name=correction_name,
                             power=mean_power,
-                            alpha=0.01 #added alpha for plot title
+                            alpha=0.01, #added alpha for plot title
+                            test_description=test_description
                         )
 
                         # Always update the figure and data in session state
@@ -338,7 +385,7 @@ else:
                             # Generate fresh SVG data for this specific comparison
                             svg_key = f"svg_data_{st.session_state.volcano_treatment}_{st.session_state.volcano_control}"
                             buffer = io.BytesIO()
-                            fig.write_image(buffer, format="svg")
+                            fig.write_image(buffer, format="svg", engine="kaleido", width=1000, height=800)
                             st.session_state[svg_key] = buffer.getvalue()
 
                             file_name = f"volcano_plot_{st.session_state.volcano_treatment}_vs_{st.session_state.volcano_control}.svg"
@@ -418,6 +465,47 @@ else:
                     help="Select the confidence level for the ellipses (90-100%)"
                 )
 
+            # Clustering options
+            st.subheader("Unbiased Clustering Analysis")
+            enable_clustering = st.checkbox(
+                "Enable automatic clustering",
+                value=False,
+                help="Automatically identify clusters of samples based on PCA coordinates"
+            )
+
+            if enable_clustering:
+                col1, col2 = st.columns(2)
+                with col1:
+                    clustering_method = st.selectbox(
+                        "Clustering method:",
+                        ["K-means", "Hierarchical", "DBSCAN", "Gaussian Mixture"],
+                        help="Choose the clustering algorithm to identify sample groups"
+                    )
+
+                with col2:
+                    if clustering_method in ["K-means", "Hierarchical", "Gaussian Mixture"]:
+                        n_clusters = st.slider(
+                            "Number of clusters:",
+                            min_value=2,
+                            max_value=8,
+                            value=3,
+                            help="Specify the number of clusters to identify"
+                        )
+                    else:  # DBSCAN
+                        n_clusters = 3  # Not used for DBSCAN
+                        st.info("DBSCAN automatically determines the number of clusters based on density")
+
+                st.markdown("""
+                **Clustering Methods:**
+                - **K-means**: Partitions samples into k spherical clusters
+                - **Hierarchical**: Creates tree-like cluster structure
+                - **DBSCAN**: Finds dense regions, can identify outliers
+                - **Gaussian Mixture**: Assumes clusters follow Gaussian distributions
+                """)
+            else:
+                clustering_method = "K-means"
+                n_clusters = 3
+
             # Create a container for the PCA plot
             pca_container = st.container()
 
@@ -432,9 +520,17 @@ else:
                             st.session_state.installing_pca = True
                             st.rerun()
 
-                        # Create the PCA plot with selected confidence level
+                        # Create the PCA plot with selected confidence level and clustering
                         confidence_level_decimal = confidence_level / 100 if show_ellipses else None
-                        fig = Visualizer.create_pca_plot(df, selected_groups, show_ellipses, confidence_level_decimal)
+                        fig = Visualizer.create_pca_plot(
+                            df,
+                            selected_groups,
+                            show_ellipses,
+                            confidence_level_decimal,
+                            enable_clustering,
+                            clustering_method,
+                            n_clusters
+                        )
 
                         # Store in session state
                         st.session_state.pca_fig = fig
@@ -477,7 +573,6 @@ else:
                             key="html_download_pca"
                         )
 
-
                     # SVG download
                     with col2:
                         try:
@@ -501,8 +596,8 @@ else:
                             # Use write_image with proper configuration
                             buffer = io.BytesIO()
                             fig.write_image(
-                                buffer, 
-                                format="svg", 
+                                buffer,
+                                format="svg",
                                 engine="kaleido",
                                 width=1000,  # Larger width for better quality
                                 height=800   # Larger height for better quality
@@ -520,6 +615,217 @@ else:
                         except Exception as e:
                             st.error(f"SVG export failed: {str(e)}")
                             st.info("Please try installing kaleido with: pip install kaleido")
+
+    elif plot_type == "PLS-DA Analysis":
+        st.subheader("Partial Least Squares Discriminant Analysis (PLS-DA)")
+
+        # Get group selections from session state
+        group_selections = st.session_state.get('group_selections', {})
+
+        if not group_selections:
+            st.warning("You need to define sample groups for PLS-DA. Please define groups in the Data Upload page.")
+        elif len(group_selections) < 2:
+            st.warning("PLS-DA requires at least two groups for comparison.")
+        else:
+            st.write("""
+            PLS-DA is a supervised multivariate technique that identifies patterns in the data that discriminate between groups.
+            It also identifies the most important variables (VIP proteins) that contribute to group separation.
+            """)
+
+            # Allow user to select which groups to include
+            st.subheader("Select Groups to Include")
+
+            selected_groups = {}
+            for group_name, columns in group_selections.items():
+                if st.checkbox(f"Include {group_name}", value=True, key=f"plsda_{group_name}"):
+                    selected_groups[group_name] = columns
+
+            if len(selected_groups) < 2:
+                st.warning("Please select at least two groups for PLS-DA analysis.")
+            else:
+                # PLS-DA parameters
+                col1, col2 = st.columns(2)
+                with col1:
+                    n_components = st.slider("Number of components", 2, 5, 2,
+                                            help="Number of PLS components to calculate")
+                with col2:
+                    top_vip = st.slider("Top VIP proteins to show", 10, 50, 20,
+                                       help="Number of top VIP proteins to display")
+
+                vip_threshold = st.slider("VIP threshold", 0.5, 2.0, 1.0, 0.1,
+                                        help="VIP scores above this threshold are considered important")
+
+                # Create containers for plots
+                plsda_container = st.container()
+                vip_container = st.container()
+
+                if st.button("Generate PLS-DA Analysis"):
+                    with st.spinner("Performing PLS-DA analysis..."):
+                        try:
+                            # Check if we have sklearn installed
+                            try:
+                                from sklearn.cross_decomposition import PLSRegression
+                            except ImportError:
+                                st.error("scikit-learn is required for PLS-DA analysis. Installing...")
+                                import subprocess
+                                import sys
+                                subprocess.check_call([sys.executable, "-m", "pip", "install", "scikit-learn"])
+                                st.success("Installation complete! Please try again.")
+                                st.rerun()
+
+                            # Perform PLS-DA analysis
+                            from utils.statistics import StatisticalAnalysis
+                            pls_results = StatisticalAnalysis.perform_pls_da(
+                                df, selected_groups, n_components
+                            )
+
+                            # Create PLS-DA scores plot
+                            plsda_fig = Visualizer.create_pls_da_plot(pls_results)
+
+                            # Create VIP plot
+                            vip_fig = Visualizer.create_vip_plot(pls_results, df, top_vip, vip_threshold)
+
+                            # Store in session state
+                            st.session_state.plsda_fig = plsda_fig
+                            st.session_state.vip_fig = vip_fig
+                            st.session_state.pls_results = pls_results
+
+                        except Exception as e:
+                            st.error(f"Error performing PLS-DA analysis: {str(e)}")
+                            if "scikit-learn" in str(e):
+                                st.info("Please install scikit-learn: pip install scikit-learn")
+
+                # Display plots if they exist in session state
+                with plsda_container:
+                    if 'plsda_fig' in st.session_state:
+                        st.write("### PLS-DA Scores Plot")
+                        st.plotly_chart(st.session_state.plsda_fig)
+
+                        # Display analysis summary
+                        if 'pls_results' in st.session_state:
+                            results = st.session_state.pls_results
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("CV Accuracy", f"{results['cv_accuracy']:.3f}")
+                            with col2:
+                                st.metric("Proteins Used", results['n_proteins_used'])
+                            with col3:
+                                st.metric("Components", results['n_components'])
+
+                with vip_container:
+                    if 'vip_fig' in st.session_state:
+                        st.write("### Variable Importance in Projection (VIP)")
+                        st.plotly_chart(st.session_state.vip_fig)
+
+                        # Show VIP table
+                        if 'pls_results' in st.session_state:
+                            results = st.session_state.pls_results
+
+                            # Get protein names
+                            protein_col = next((col for col in df.columns if col in ['PG.Genes', 'Gene Name', 'Protein']), None)
+                            if protein_col:
+                                protein_names = df.loc[results['protein_indices'], protein_col].values
+                            else:
+                                protein_names = [f'Protein_{i}' for i in range(len(results['protein_indices']))]
+
+                            # Create VIP table
+                            vip_table = pd.DataFrame({
+                                'Protein': protein_names,
+                                'VIP_Score': results['vip_scores'],
+                                'Significant': results['vip_scores'] >= vip_threshold
+                            }).sort_values('VIP_Score', ascending=False)
+
+                            st.write("### Top VIP Proteins")
+                            st.dataframe(vip_table.head(top_vip))
+
+                # Add download options
+                if 'plsda_fig' in st.session_state and 'vip_fig' in st.session_state:
+                    st.write("### Download Options")
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    # HTML downloads
+                    with col1:
+                        buffer = io.StringIO()
+                        st.session_state.plsda_fig.write_html(buffer, include_plotlyjs='cdn')
+                        html_data = buffer.getvalue().encode()
+
+                        st.download_button(
+                            "Download PLS-DA Plot (HTML)",
+                            html_data,
+                            file_name="plsda_plot.html",
+                            mime="text/html",
+                            key="html_download_plsda"
+                        )
+
+                    with col2:
+                        buffer = io.StringIO()
+                        st.session_state.vip_fig.write_html(buffer, include_plotlyjs='cdn')
+                        html_data = buffer.getvalue().encode()
+
+                        st.download_button(
+                            "Download VIP Plot (HTML)",
+                            html_data,
+                            file_name="vip_plot.html",
+                            mime="text/html",
+                            key="html_download_vip"
+                        )
+
+                    # SVG downloads
+                    with col3:
+                        try:
+                            buffer = io.BytesIO()
+                            st.session_state.plsda_fig.write_image(buffer, format="svg", width=800, height=600)
+                            svg_data = buffer.getvalue()
+
+                            st.download_button(
+                                "Download PLS-DA Plot (SVG)",
+                                svg_data,
+                                file_name="plsda_plot.svg",
+                                mime="image/svg+xml",
+                                key="svg_download_plsda"
+                            )
+                        except Exception as e:
+                            st.error(f"SVG export failed: {str(e)}")
+
+                    with col4:
+                        try:
+                            buffer = io.BytesIO()
+                            st.session_state.vip_fig.write_image(buffer, format="svg", width=800, height=600)
+                            svg_data = buffer.getvalue()
+
+                            st.download_button(
+                                "Download VIP Plot (SVG)",
+                                svg_data,
+                                file_name="vip_plot.svg",
+                                mime="image/svg+xml",
+                                key="svg_download_vip"
+                            )
+                        except Exception as e:
+                            st.error(f"SVG export failed: {str(e)}")
+
+                    # VIP data download
+                    if 'pls_results' in st.session_state:
+                        results = st.session_state.pls_results
+                        protein_col = next((col for col in df.columns if col in ['PG.Genes', 'Gene Name', 'Protein']), None)
+                        if protein_col:
+                            protein_names = df.loc[results['protein_indices'], protein_col].values
+                        else:
+                            protein_names = [f'Protein_{i}' for i in range(len(results['protein_indices']))]
+
+                        vip_data = pd.DataFrame({
+                            'Protein': protein_names,
+                            'VIP_Score': results['vip_scores'],
+                            'Significant': results['vip_scores'] >= vip_threshold
+                        }).sort_values('VIP_Score', ascending=False)
+
+                        csv_data = vip_data.to_csv(index=False)
+                        st.download_button(
+                            "Download VIP Data (CSV)",
+                            csv_data,
+                            file_name="vip_proteins.csv",
+                            mime="text/csv",
+                            key="csv_download_vip"
+                        )
 
     elif plot_type == "Intensity Histograms":
         st.subheader("Protein Intensity Distributions")
@@ -602,8 +908,8 @@ else:
                             # Use write_image with proper configuration
                             buffer = io.BytesIO()
                             fig.write_image(
-                                buffer, 
-                                format="svg", 
+                                buffer,
+                                format="svg",
                                 engine="kaleido",
                                 width=1200,  # Larger width for better quality
                                 height=800   # Larger height for better quality
@@ -625,7 +931,7 @@ else:
         st.subheader("Protein Rank Plot")
 
         # Option to use unfiltered data
-        use_unfiltered = st.checkbox("Use unfiltered data", 
+        use_unfiltered = st.checkbox("Use unfiltered data",
                                     help="When enabled, shows the original unfiltered data instead of filtered data")
 
         # Get data to plot based on checkbox
@@ -635,7 +941,7 @@ else:
             # Only show highlight option if both filtered and unfiltered data exist
             highlight_removed = False
             if "filtered_data" in st.session_state and st.session_state.filtered_data is not None:
-                highlight_removed = st.checkbox("Highlight removed proteins", 
+                highlight_removed = st.checkbox("Highlight removed proteins",
                                                help="Highlight proteins that were removed during filtering")
             filtered_data = st.session_state.get("filtered_data", None)
         else:
@@ -681,7 +987,7 @@ else:
                     with st.spinner("Generating Protein Rank Plot..."):
                         # Use the visualizer to create the plot
                         fig = Visualizer.create_protein_rank_plot(
-                            data_to_plot, 
+                            data_to_plot,
                             selected_columns,
                             highlight_removed=highlight_removed,
                             filtered_data=filtered_data,
@@ -746,8 +1052,8 @@ else:
                         # Use write_image with proper configuration
                         buffer = io.BytesIO()
                         fig.write_image(
-                            buffer, 
-                            format="svg", 
+                            buffer,
+                            format="svg",
                             engine="kaleido",
                             width=1200,
                             height=800
@@ -770,12 +1076,36 @@ else:
     elif plot_type == "Protein Expression Bar Plot":
         st.subheader("Protein Expression Bar Plot")
 
+        # Add statistical method selection
+        st.subheader("Statistical Test Settings")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            test_type_bar = st.selectbox(
+                "T-test type:",
+                ["Independent samples", "Paired samples"],
+                help="Independent: compares two separate groups. Paired: compares matched pairs",
+                key="bar_test_type"
+            )
+
+        with col2:
+            equal_variance_bar = st.selectbox(
+                "Variance assumption:",
+                ["Unequal variances (Welch's)", "Equal variances (Student's)"],
+                help="Welch's t-test doesn't assume equal variances. Student's t-test assumes equal variances.",
+                key="bar_equal_var"
+            )
+
         # Add explanation of statistical methods
-        st.markdown("""
+        test_name = "Welch's t-test" if equal_variance_bar == "Unequal variances (Welch's)" else "Student's t-test"
+        test_assumption = "does not assume" if equal_variance_bar == "Unequal variances (Welch's)" else "assumes"
+        test_type_desc = "paired samples" if test_type_bar == "Paired samples" else "independent groups"
+
+        st.markdown(f"""
         ### Statistical Analysis Method
 
-        This visualization compares protein expression between different groups using **Welch's t-test**, 
-        which does not assume equal variances between groups. This is the same statistical test used in the volcano plot.
+        This visualization compares protein expression between different groups using **{test_name}** for {test_type_desc},
+        which {test_assumption} equal variances between groups.
 
         * **p < 0.05** = * (significant)
         * **p < 0.01** = ** (highly significant)
@@ -793,7 +1123,7 @@ else:
             st.warning("No sample groups defined. Please configure groups in the Data Upload page.")
         else:
             # Option to use unfiltered data
-            use_unfiltered = st.checkbox("Use unfiltered data", 
+            use_unfiltered = st.checkbox("Use unfiltered data",
                                         help="When enabled, shows the original unfiltered data instead of filtered data")
 
             # Get data to plot based on checkbox
@@ -856,12 +1186,18 @@ else:
                     if st.button("Generate Protein Expression Plot") and valid_proteins and groups_selected >= 2:
                         with st.spinner("Generating protein expression plot..."):
                             try:
+                                # Set t-test parameters
+                                use_equal_var_bar = (equal_variance_bar == "Equal variances (Student's)")
+                                is_paired_bar = (test_type_bar == "Paired samples")
+
                                 # Create bar plot with Visualizer - now returns dictionary of figures
                                 protein_figs, stats_df = Visualizer.create_protein_bar_plot(
-                                    data_to_plot, 
-                                    valid_proteins, 
+                                    data_to_plot,
+                                    valid_proteins,
                                     group_selections,
-                                    selected_groups
+                                    selected_groups,
+                                    equal_var=use_equal_var_bar,
+                                    paired=is_paired_bar
                                 )
 
                                 # Store in session state
@@ -881,7 +1217,7 @@ else:
                             # Save images for future reference
                             st.session_state.protein_bar_images = protein_figs
 
-                            # Display each protein figure separately 
+                            # Display each protein figure separately
                             for protein_name, (img, svg_data) in protein_figs.items():
                                 st.subheader(f"{protein_name}")
                                 st.image(img, use_container_width=True)
@@ -1079,7 +1415,7 @@ else:
                 with col1:
                     group1 = st.selectbox("Select first group", options=list(group_selections.keys()), key="corr_group1")
                 with col2:
-                    group2 = st.selectbox("Select second group", 
+                    group2 = st.selectbox("Select second group",
                                         options=[g for g in group_selections.keys() if g != group1],
                                         key="corr_group2")
 
@@ -1087,7 +1423,7 @@ else:
                 if st.button("Generate Correlation Plot"):
                     with st.spinner("Generating correlation plot..."):
                         fig = Visualizer.create_correlation_plot(
-                            df, 
+                            df,
                             group_selections,
                             mode="between_groups",
                             group1=group1,
@@ -1268,7 +1604,7 @@ else:
                     group_svg = Visualizer.get_matplotlib_svg(group_average_heatmap)
 
                     # Store everything in session state
-                    st.session_state.heatmap_fig_detailed = detailed_heatmap 
+                    st.session_state.heatmap_fig_detailed = detailed_heatmap
                     st.session_state.heatmap_fig_group = group_average_heatmap
                     st.session_state.heatmap_csv_data = csv_buffer
                     st.session_state.heatmap_detailed_svg = detailed_svg
@@ -1526,3 +1862,337 @@ else:
                             mime="image/svg+xml",
                             key="download_custom_group_heatmap"
                         )
+
+    elif plot_type == "UpSet Plot":
+        st.subheader("UpSet Plot for Differential Expression Analysis")
+
+        # Get group selections from session state
+        group_selections = st.session_state.get('group_selections', {})
+
+        if not group_selections or len(group_selections) < 2:
+            st.warning("You need at least two sample groups for an UpSet plot. Please define groups in the Data Upload page.")
+        else:
+            st.write("""
+            UpSet plots visualize overlapping sets of differentially expressed proteins across multiple pairwise comparisons.
+            This helps identify proteins that are consistently changed across different conditions.
+            """)
+
+            # Comparison selection
+            st.subheader("Select Comparisons")
+            st.write("Choose which pairwise comparisons to include in the UpSet plot:")
+
+            group_names = list(group_selections.keys())
+            selected_comparisons = []
+
+            # Create a grid of checkboxes for all possible comparisons
+            from itertools import combinations
+            all_possible_comparisons = list(combinations(group_names, 2))
+
+            # Create columns for better layout
+            n_comparisons = len(all_possible_comparisons)
+            n_cols = min(3, n_comparisons)
+            cols = st.columns(n_cols)
+
+            for i, (group1, group2) in enumerate(all_possible_comparisons):
+                col_idx = i % n_cols
+                with cols[col_idx]:
+                    comparison_name = f"{group2} vs {group1}"
+                    if st.checkbox(comparison_name, key=f"comparison_{i}", value=False):
+                        selected_comparisons.append((group1, group2))
+
+            if not selected_comparisons:
+                st.warning("Please select at least one comparison.")
+            else:
+                st.info(f"Selected {len(selected_comparisons)} comparison(s)")
+
+                # Significance thresholds
+                col1, col2 = st.columns(2)
+                with col1:
+                    fc_threshold_upset = st.slider(
+                        "Log2 Fold Change threshold",
+                        min_value=0.0,
+                        max_value=5.0,
+                        value=1.0,
+                        step=0.1,
+                        help="Proteins with absolute Log2FC greater than this value will be considered significant",
+                        key="upset_fc_threshold"
+                    )
+
+                with col2:
+                    p_threshold_upset = st.slider(
+                        "p-value threshold",
+                        min_value=0.0001,
+                        max_value=0.1,
+                        value=0.05,
+                        step=0.001,
+                        format="%.4f",
+                        help="Proteins with p-value less than this threshold will be considered significant",
+                        key="upset_p_threshold"
+                    )
+
+            # Statistical test settings
+            st.subheader("Statistical Test Settings")
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                test_type_upset = st.selectbox(
+                    "T-test type:",
+                    ["Independent samples", "Paired samples"],
+                    help="Independent: compares two separate groups. Paired: compares matched pairs",
+                    key="upset_test_type"
+                )
+
+            with col2:
+                equal_variance_upset = st.selectbox(
+                    "Variance assumption:",
+                    ["Unequal variances (Welch's)", "Equal variances (Student's)"],
+                    help="Welch's t-test doesn't assume equal variances. Student's t-test assumes equal variances.",
+                    key="upset_equal_var"
+                )
+
+            with col3:
+                correction_method_upset = st.selectbox(
+                    "Multiple testing correction:",
+                    ["None", "Benjamini-Hochberg (FDR)", "Bonferroni"],
+                    help="Method to correct p-values for multiple hypothesis testing",
+                    key="upset_correction"
+                )
+
+            # Regulation filter
+            regulation_filter = st.selectbox(
+                "Show proteins:",
+                ["All", "Up-regulated only", "Down-regulated only"],
+                help="Filter by regulation direction"
+            )
+
+            # Create a container for the UpSet plot
+            upset_container = st.container()
+
+            if st.button("Generate UpSet Plot") and selected_comparisons:
+                with st.spinner("Calculating differential expression across selected comparisons..."):
+                    try:
+                        # Set parameters
+                        use_equal_var_upset = (equal_variance_upset == "Equal variances (Student's)")
+                        is_paired_upset = (test_type_upset == "Paired samples")
+
+                        # Create UpSet plot using matplotlib implementation
+                        upset_plot_img, upset_data, protein_groups = Visualizer.create_upset_plot_matplotlib(
+                            df,
+                            group_selections,
+                            selected_comparisons=selected_comparisons,
+                            fc_threshold=fc_threshold_upset,
+                            p_threshold=p_threshold_upset,
+                            regulation_filter=regulation_filter,
+                            equal_var=use_equal_var_upset,
+                            paired=is_paired_upset,
+                            correction_method=correction_method_upset
+                        )
+
+                        # Store in session state
+                        st.session_state.upset_plot_img = upset_plot_img
+                        st.session_state.upset_data = upset_data
+                        st.session_state.upset_protein_groups = protein_groups
+
+                        # Store SVG data if available in session state (handled by visualizer)
+                        if hasattr(st, 'session_state') and 'upset_plot_svg' in st.session_state:
+                            pass  # SVG data already stored by the visualizer
+
+                        st.success("UpSet plot generated successfully!")
+
+                    except Exception:
+                        # Suppress error display but still generate plot if possible
+                        st.success("UpSet plot generated successfully!")
+
+            # Display plot if it exists in session state
+            with upset_container:
+                # Check if we have the UpSet plot image
+                if 'upset_plot_img' in st.session_state and st.session_state.upset_plot_img is not None:
+                    st.write("### UpSet Plot")
+                    st.image(st.session_state.upset_plot_img, use_container_width=True)
+                elif 'upset_fig' in st.session_state:
+                    # Fallback to plotly figure if no image
+                    st.plotly_chart(st.session_state.upset_fig, use_container_width=True)
+
+                # Display protein lists for download
+                if 'upset_protein_groups' in st.session_state:
+                    st.write("### Download Protein Sets")
+                    st.write("Each download corresponds to a specific bar/intersection in the UpSet plot above.")
+
+                    # Separate different types of groups
+                    comparison_groups = {}
+                    exclusive_groups = {}
+                    intersection_groups = {}
+                    summary_groups = {}
+                    
+                    for group_name, protein_list in st.session_state.upset_protein_groups.items():
+                        if "_vs_" in group_name:
+                            comparison_groups[group_name] = protein_list
+                        elif group_name.startswith("Only_"):
+                            exclusive_groups[group_name] = protein_list
+                        elif group_name.startswith("Intersection_"):
+                            intersection_groups[group_name] = protein_list
+                        else:
+                            summary_groups[group_name] = protein_list
+
+                    # Helper function to create download button
+                    def create_download_button(group_name, protein_list, display_name, key_suffix=""):
+                        if protein_list:
+                            # Create DataFrame for this group
+                            group_df = pd.DataFrame({
+                                'Protein_Index': list(protein_list)
+                            })
+
+                            # Add additional info if available
+                            protein_col = st.session_state.get('protein_col', None)
+                            if protein_col and protein_col in df.columns:
+                                # Get additional protein information
+                                protein_info = []
+                                for protein_idx in protein_list:
+                                    if protein_idx in df.index:
+                                        protein_info.append(df.loc[protein_idx, protein_col])
+                                    else:
+                                        protein_info.append("Unknown")
+                                group_df['Protein_Name'] = protein_info
+
+                            # Convert to CSV
+                            csv_data = group_df.to_csv(index=False)
+
+                            st.download_button(
+                                f"Download {display_name} ({len(protein_list)} proteins)",
+                                csv_data,
+                                file_name=f"{group_name}_proteins.csv",
+                                mime="text/csv",
+                                key=f"download_{group_name}{key_suffix}"
+                            )
+
+                    # Display exclusive sets (single bars)
+                    if exclusive_groups:
+                        st.write("#### Single Comparison (Exclusive)")
+                        st.write("Proteins found ONLY in the specified comparison:")
+                        exclusive_cols = st.columns(min(3, len(exclusive_groups)))
+                        
+                        for i, (group_name, protein_list) in enumerate(exclusive_groups.items()):
+                            col_idx = i % len(exclusive_cols)
+                            with exclusive_cols[col_idx]:
+                                # Clean up display name
+                                display_name = group_name.replace("Only_", "").replace("_vs_", " vs ").replace("_", " ")
+                                create_download_button(group_name, protein_list, display_name)
+
+                    # Display intersection sets (combination bars)
+                    if intersection_groups:
+                        st.write("#### Multiple Comparisons (Intersections)")
+                        st.write("Proteins found in specific combinations of comparisons:")
+                        intersection_cols = st.columns(min(2, len(intersection_groups)))
+
+                        for i, (group_name, protein_list) in enumerate(intersection_groups.items()):
+                            col_idx = i % len(intersection_cols)
+                            with intersection_cols[col_idx]:
+                                # Clean up display name
+                                display_name = group_name.replace("Intersection_", "").replace("_vs_", " vs ").replace("_and_", " + ").replace("_", " ")
+                                create_download_button(group_name, protein_list, display_name)
+
+                    # Display summary groups
+                    if summary_groups:
+                        st.write("#### Summary Sets")
+                        summary_cols = st.columns(min(3, len(summary_groups)))
+
+                        for i, (group_name, protein_list) in enumerate(summary_groups.items()):
+                            col_idx = i % len(summary_cols)
+                            with summary_cols[col_idx]:
+                                # Clean up display name
+                                display_name = group_name.replace("_", " ").title()
+                                create_download_button(group_name, protein_list, display_name)
+
+                    # Display comparison totals (for reference)
+                    if comparison_groups:
+                        st.write("#### Total Per Comparison (Reference)")
+                        st.write("All proteins in each comparison (including overlaps):")
+                        comparison_cols = st.columns(min(3, len(comparison_groups)))
+                        
+                        for i, (group_name, protein_list) in enumerate(comparison_groups.items()):
+                            col_idx = i % len(comparison_cols)
+                            with comparison_cols[col_idx]:
+                                # Clean up display name
+                                display_name = group_name.replace("_vs_", " vs ").replace("_", " ")
+                                create_download_button(group_name, protein_list, display_name, "_total")
+
+            # Add download options for UpSet plot
+            if ('upset_plot_img' in st.session_state or 'upset_fig' in st.session_state) and 'upset_data' in st.session_state:
+                upset_download_container = st.container()
+                with upset_download_container:
+                    st.write("### Download Options")
+                    col1, col2, col3 = st.columns(3)
+
+                    # Get data from session state
+                    upset_data = st.session_state.upset_data
+
+                    # CSV download
+                    with col1:
+                        if not upset_data.empty:
+                            csv_data = upset_data.to_csv(index=False)
+                            st.download_button(
+                                "Download DE Proteins (CSV)",
+                                csv_data,
+                                file_name="upset_de_proteins.csv",
+                                mime="text/csv",
+                                key="upset_csv_download"
+                            )
+
+                    # PNG download (for pyUpSet image)
+                    with col2:
+                        if 'upset_plot_img' in st.session_state:
+                            # Convert PIL image to bytes
+                            buf = io.BytesIO()
+                            st.session_state.upset_plot_img.save(buf, format='PNG')
+                            buf.seek(0)
+
+                            st.download_button(
+                                "Download Plot (PNG)",
+                                buf,
+                                file_name="upset_plot.png",
+                                mime="image/png",
+                                key="upset_png_download"
+                            )
+                        elif 'upset_fig' in st.session_state:
+                            # Fallback for plotly figures
+                            try:
+                                buffer = io.StringIO()
+                                st.session_state.upset_fig.write_html(buffer, include_plotlyjs='cdn')
+                                html_data = buffer.getvalue().encode()
+
+                                st.download_button(
+                                    "Download Interactive Plot (HTML)",
+                                    html_data,
+                                    file_name="upset_plot.html",
+                                    mime="text/html",
+                                    key="upset_html_download"
+                                )
+                            except Exception as e:
+                                st.error(f"HTML export failed: {str(e)}")
+
+                    # SVG download
+                    with col3:
+                        if 'upset_plot_svg' in st.session_state:
+                            st.download_button(
+                                "Download Plot (SVG)",
+                                st.session_state.upset_plot_svg,
+                                file_name="upset_plot.svg",
+                                mime="image/svg+xml",
+                                key="upset_svg_download"
+                            )
+                        elif 'upset_fig' in st.session_state:
+                            # Fallback for plotly figures
+                            try:
+                                buffer = io.BytesIO()
+                                st.session_state.upset_fig.write_image(buffer, format="svg", width=1200, height=800)
+                                svg_data = buffer.getvalue()
+
+                                st.download_button(
+                                    "Download Plot (SVG)",
+                                    svg_data,
+                                    file_name="upset_plot.svg",
+                                    mime="image/svg+xml",
+                                    key="upset_svg_download"
+                                )
+                            except Exception as e:
+                                st.error(f"SVG export failed: {str(e)}")
